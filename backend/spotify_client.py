@@ -84,8 +84,13 @@ class SpotifyClient(QObject):
         album = str(meta.get("xesam:album", ""))
         art_url = str(meta.get("mpris:artUrl", ""))
 
-        # Check if track actually changed
-        if track_id != self.current_track_id or not self.current_cover_path:
+        # Check if track actually changed (manual skip OR natural song completion)
+        track_key = f"{track_id}|{title}|{artist}"
+        if not hasattr(self, "current_track_key"):
+            self.current_track_key = ""
+
+        if track_key != self.current_track_key or not self.current_cover_path:
+            self.current_track_key = track_key
             self.current_track_id = track_id
             cover_path = self._download_cover(art_url)
             self.current_cover_path = cover_path

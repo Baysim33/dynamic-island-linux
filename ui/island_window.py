@@ -5,12 +5,19 @@ Animates smoothly on 240Hz screens and respects multi-monitor gaming protection.
 """
 import os
 import subprocess
+import ctypes
+import shiboken6
 from PySide6.QtWidgets import QWidget, QLabel, QHBoxLayout, QVBoxLayout, QApplication
 from PySide6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QPixmap, QGuiApplication, QCursor
 from PySide6.QtCore import Qt, QTimer, QRectF, QPropertyAnimation, QEasingCurve, Signal, Property
 
 from graphics.ash_particles import AshCoverCanvas
 from ui.visualizer import MiniVisualizer
+
+LIB_LAYERSHELL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "liblayershell_helper.so"
+)
 
 
 class DynamicIsland(QWidget):
@@ -22,12 +29,8 @@ class DynamicIsland(QWidget):
         super().__init__(parent)
         self.target_screen_name = target_screen_name
 
-        # Window configuration
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
-        )
+        # Window configuration for native LayerShell overlay
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
 
@@ -52,7 +55,7 @@ class DynamicIsland(QWidget):
 
         # 1. Ash Particle Cover Canvas
         self.cover_canvas = AshCoverCanvas(size=84, parent=self)
-        self.cover_canvas.setGeometry(16, 14, 144, 84)
+        self.cover_canvas.setGeometry(16, 12, 144, 84)
         self.cover_canvas.hide()
 
         # 2. Mini Compact Cover
@@ -74,8 +77,29 @@ class DynamicIsland(QWidget):
         self.collapse_timer.setInterval(4500)
         self.collapse_timer.timeout.connect(self._on_collapse_timeout)
 
-        # Re-position window on chosen screen
+        # Anchor window flush to top bezel using LayerShell
         self.update_screen_position(target_screen_name)
+
+    def _setup_layershell(self, target_screen):
+        """Attaches to Wayland LayerShell protocol to anchor window flush to top edge"""
+        try:
+            if not os.path.exists(LIB_LAYERSHELL_PATH):
+                return False
+            self.winId()  # Ensure underlying QWindow exists
+            wh = self.windowHandle()
+            if not wh:
+                return False
+
+            lib = ctypes.CDLL(LIB_LAYERSHELL_PATH)
+            lib.setup_layershell_window.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+            lib.setup_layershell_window.restype = ctypes.c_bool
+
+            ptr_wh = shiboken6.getCppPointer(wh)[0]
+            ptr_screen = shiboken6.getCppPointer(target_screen)[0] if target_screen else 0
+            return lib.setup_layershell_window(ptr_wh, ptr_screen, self.canvas_width, self.canvas_height)
+        except Exception as e:
+            print(f"[DynamicIsland] LayerShell setup error: {e}")
+            return False
 
     def set_target_screen(self, screen_name: str):
         if screen_name != self.target_screen_name:
@@ -91,11 +115,12 @@ class DynamicIsland(QWidget):
         if not target_screen:
             target_screen = QGuiApplication.primaryScreen()
 
-        if target_screen:
+        success = self._setup_layershell(target_screen)
+        if not success and target_screen:
+            # Fallback for X11 / non-layer-shell environments
             geo = target_screen.geometry()
-            # Center horizontally at the very top of that monitor
             x = geo.x() + (geo.width() - self.canvas_width) // 2
-            y = geo.y() + 6  # 6px gap from the top bezel
+            y = geo.y() + 0
             self.move(x, y)
 
     def on_playback_status(self, status: str):
@@ -148,6 +173,7 @@ class DynamicIsland(QWidget):
             self.visualizer.show()
 
         if mode != self.MODE_HIDDEN and not self.isVisible():
+            self.update_screen_position(self.target_screen_name)
             self.show()
             self.raise_()
 
@@ -209,10 +235,10 @@ class DynamicIsland(QWidget):
         # Center the pill horizontally within the canvas
         cx = self.width() / 2.0
         x = cx - (self._pill_width / 2.0)
-        y = 4.0
+        y = 0.0
         w = self._pill_width
         h = self._pill_height
-        radius = h / 2.0
+        radius = min(h / 2.0, 22.0)
 
         pill_rect = QRectF(x, y, w, h)
 

@@ -29,9 +29,9 @@ class AshParticle:
             self.x = x
             self.y = y
             self.phase = "dissolve"
-            # Strong wind from the left (positive X direction) + rising updraft
-            self.vx = random.uniform(3.5, 9.5)
-            self.vy = random.uniform(-3.2, 0.8)
+            # Gentle wind from the left (positive X direction) + rising updraft
+            self.vx = random.uniform(2.0, 5.2)
+            self.vy = random.uniform(-1.8, 0.5)
             self.size = random.uniform(1.8, 3.2)
             self.alpha = 255.0
             # ~12% chance of being an incandescent ember spark
@@ -75,7 +75,7 @@ class AshCoverCanvas(QWidget):
 
         self.particles: list[AshParticle] = []
         self.anim_start_time = 0.0
-        self.anim_duration = 1.6  # Total transition duration in seconds
+        self.anim_duration = 2.0  # Total transition duration in seconds
         self.is_animating = False
 
         # 120-240Hz High-refresh simulation timer (~6ms)
@@ -121,7 +121,7 @@ class AshCoverCanvas(QWidget):
                 c = old_img.pixelColor(x, y)
                 if c.alpha() > 20:
                     # Wave delay: particles on the left (x=0) blow away first!
-                    delay = (x / float(w)) * 0.35 + random.uniform(0.0, 0.08)
+                    delay = (x / float(w)) * 0.40 + random.uniform(0.0, 0.08)
                     self.particles.append(AshParticle(x, y, c, is_disintegrating=True, delay=delay))
 
         # 2. Sample new cover into assembly particles
@@ -130,8 +130,8 @@ class AshCoverCanvas(QWidget):
             for x in range(0, w, step):
                 c = new_img.pixelColor(x, y)
                 if c.alpha() > 20:
-                    # Assembly delay starts around 0.5s into the transition
-                    delay = 0.50 + (x / float(w)) * 0.30 + random.uniform(0.0, 0.08)
+                    # Assembly delay starts around 0.55s into the transition
+                    delay = 0.55 + (x / float(w)) * 0.35 + random.uniform(0.0, 0.08)
                     self.particles.append(AshParticle(x, y, c, is_disintegrating=False, delay=delay, target_x=x, target_y=y))
 
         self.anim_start_time = time.perf_counter()
@@ -164,16 +164,16 @@ class AshCoverCanvas(QWidget):
 
             if p.phase == "dissolve":
                 # Wind gust acceleration to the right
-                p.vx += random.uniform(0.1, 0.4)
-                p.vy += random.uniform(-0.15, 0.1)  # Thermal updraft turbulence
+                p.vx += random.uniform(0.06, 0.20)
+                p.vy += random.uniform(-0.08, 0.06)  # Thermal updraft turbulence
                 p.x += p.vx
                 p.y += p.vy
                 # Fade out ash
-                p.alpha = max(0.0, 255.0 * (1.0 - (t_active / 0.75)))
-                p.size = max(0.8, p.size * 0.985)
+                p.alpha = max(0.0, 255.0 * (1.0 - (t_active / 0.95)))
+                p.size = max(0.8, p.size * 0.988)
             elif p.phase == "assemble":
                 # Magnetic spring attraction towards target (tx, ty)
-                progress = min(1.0, t_active / 0.65)
+                progress = min(1.0, t_active / 0.75)
                 # Cubic ease-out
                 ease = 1.0 - math.pow(1.0 - progress, 3)
                 p.x = p.orig_x + (p.target_x - p.orig_x) * ease
@@ -198,9 +198,9 @@ class AshCoverCanvas(QWidget):
             elapsed = time.perf_counter() - self.anim_start_time
 
             # Draw static residual of old cover that hasn't peeled off yet
-            if self.current_pixmap and elapsed < 0.4:
+            if self.current_pixmap and elapsed < 0.50:
                 # Clip revealing only remaining right side
-                pct = min(1.0, elapsed / 0.4)
+                pct = min(1.0, elapsed / 0.50)
                 left_cutoff = self.canvas_size * pct
                 painter.save()
                 painter.setClipRect(QRectF(left_cutoff, 0, self.canvas_size - left_cutoff, self.canvas_size))
