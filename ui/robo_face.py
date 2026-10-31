@@ -1,9 +1,10 @@
 """
 Robo Face Drawing Engine for Robo Island.
-Draws animated robot eyes that communicate system state via color and motion.
+Draws animated, living robot eyes that communicate system state via color, motion,
+and lively autonomous micro-expressions when idle!
 
 Eye states:
-  idle      - half-closed, slow pulse (violet dim)
+  idle      - half-closed, slow pulse with living autonomous saccades, winks, curiosity
   active    - full open, spinning retina (cyan bright)
   happy     - arc/smile shape, green glow
   alert     - full open blinking fast (yellow/amber)
@@ -12,13 +13,14 @@ Eye states:
 """
 import math
 import time
+import random
 from PySide6.QtGui import QPainter, QColor, QBrush, QPen, QRadialGradient
 from PySide6.QtCore import QRectF, Qt
 
 
 # ── Color palette per state ────────────────────────────────────────────────
 STATE_COLORS = {
-    "idle":     (QColor(146, 110, 228, 180), QColor(180, 150, 255, 220)),  # violet
+    "idle":     (QColor(146, 110, 228, 190), QColor(190, 160, 255, 230)),  # violet
     "active":   (QColor(0,   200, 255, 220), QColor(120, 240, 255, 255)),  # cyan
     "happy":    (QColor(29,  185,  84, 220), QColor(80,  230, 130, 255)),  # green
     "alert":    (QColor(230, 170,   0, 220), QColor(255, 210,  60, 255)),  # amber
@@ -29,139 +31,207 @@ STATE_COLORS = {
 
 class RoboFace:
     """
-    Stateless drawing helper — call draw() each frame.
-    All animation is driven by time.perf_counter() so no QTimer needed.
+    Stateless & autonomous drawing helper — call draw() each frame.
+    Simulates a living, curious AI assistant with spontaneous organic micro-mimics.
     """
 
     def __init__(self):
         self.state = "idle"
         self._state_entered = time.perf_counter()
-        self._blink_interval = 4.2   # seconds between auto-blinks
-        self._blink_duration = 0.18  # seconds a blink lasts
+        self._blink_interval = 3.6   # seconds between auto-blinks
+        self._blink_duration = 0.16  # seconds a blink lasts
         self._spin_speed = 1.8       # radians/s for active retina spin
         self._alert_freq  = 5.0      # Hz for alert blink
+
+        # ── Autonomous Idle Behavior State Machine ────────────────────────
+        self._last_behavior_switch = time.perf_counter()
+        self._behavior_duration = 2.0
+        self._current_behavior = "center"  # center, look_left, look_right, look_up, curious, wink, smile, heart
+
+        # Smooth interpolated gaze offset
+        self._gaze_x = 0.0
+        self._gaze_y = 0.0
+        self._target_gaze_x = 0.0
+        self._target_gaze_y = 0.0
 
     def set_state(self, state: str):
         if state != self.state:
             self.state = state
             self._state_entered = time.perf_counter()
 
+    def _update_idle_behavior(self, t: float):
+        """Randomly cycles between cute lifelike robotic expressions while idle."""
+        if self.state != "idle":
+            self._current_behavior = "center"
+            self._target_gaze_x = 0.0
+            self._target_gaze_y = 0.0
+            return
+
+        if t - self._last_behavior_switch > self._behavior_duration:
+            self._last_behavior_switch = t
+            # Weight towards center but sprinkle fun autonomous actions
+            choices = [
+                ("center", 2.2, 0.0, 0.0),
+                ("look_right", 1.8, 1.8, 0.0),
+                ("look_left", 1.8, -1.8, 0.0),
+                ("look_up", 1.5, 0.0, -1.5),
+                ("curious", 1.6, 1.2, -0.8),
+                ("wink", 0.9, 0.0, 0.0),
+                ("smile", 1.4, 0.0, 0.0),
+                ("heart", 1.6, 0.0, 0.0),
+                ("center", 2.8, 0.0, 0.0),
+            ]
+            beh, dur, gx, gy = random.choice(choices)
+            self._current_behavior = beh
+            self._behavior_duration = dur
+            self._target_gaze_x = gx
+            self._target_gaze_y = gy
+
+        # Smooth exponential easing for pupils
+        self._gaze_x += (self._target_gaze_x - self._gaze_x) * 0.15
+        self._gaze_y += (self._target_gaze_y - self._gaze_y) * 0.15
+
     def draw(self, painter: QPainter, cx: float, cy: float, eye_w: float = 14.0, eye_h: float = 10.0):
-        """
-        Draw two robot eyes centered around (cx, cy).
-        eye_w / eye_h = outer eye oval dimensions.
-        """
         t = time.perf_counter()
         elapsed = t - self._state_entered
 
+        self._update_idle_behavior(t)
+
         base_color, glow_color = STATE_COLORS.get(self.state, STATE_COLORS["idle"])
 
-        # ── Eye gap & positions ───────────────────────────────────────────
+        # Eye gap & positions
         gap = eye_w * 0.9
         left_cx  = cx - gap / 2 - eye_w / 2
         right_cx = cx + gap / 2 + eye_w / 2
         eye_y    = cy
 
-        for ex in (left_cx, right_cx):
-            self._draw_single_eye(painter, ex, eye_y, eye_w, eye_h,
-                                   base_color, glow_color, t, elapsed, cx)
+        # Draw left eye
+        self._draw_single_eye(painter, left_cx, eye_y, eye_w, eye_h,
+                               base_color, glow_color, t, elapsed, is_left=True)
 
-    # ── Private helpers ───────────────────────────────────────────────────
+        # Draw right eye
+        self._draw_single_eye(painter, right_cx, eye_y, eye_w, eye_h,
+                               base_color, glow_color, t, elapsed, is_left=False)
 
-    def _draw_single_eye(self, painter, ex, ey, ew, eh,
-                          base_col, glow_col, t, elapsed, center_cx):
+    # ── Single Eye Renderer ───────────────────────────────────────────────────
+
+    def _draw_single_eye(self, painter: QPainter, ex: float, ey: float, ew: float, eh: float,
+                          base_col: QColor, glow_col: QColor, t: float, elapsed: float, is_left: bool):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         state = self.state
+        beh   = self._current_behavior
 
         # ── Blink calculation ─────────────────────────────────────────────
-        blink_phase = 0.0   # 0 = fully open, 1 = fully closed
+        blink_phase = 0.0
         if state not in ("sleeping", "error"):
             blink_t = t % self._blink_interval
             if blink_t < self._blink_duration:
                 blink_phase = math.sin(math.pi * blink_t / self._blink_duration)
 
         if state == "alert":
-            # Override blink with fast strobe
             blink_phase = 0.5 + 0.5 * math.sin(2 * math.pi * self._alert_freq * elapsed)
             blink_phase = max(0.0, blink_phase)
 
-        open_ratio = 1.0 - blink_phase  # 1 = open, 0 = blink-closed
+        open_ratio = 1.0 - blink_phase
 
-        # ── Height modifiers per state ────────────────────────────────────
+        # ── Autonomous Behaviors & Mimic Modifiers ────────────────────────
+        is_smile = False
+        is_heart = False
+
         if state == "idle":
-            # Slightly droopy — half open with slow breathe
-            open_ratio *= 0.60 + 0.12 * math.sin(2 * math.pi * 0.35 * t)
+            # Breathing pulse
+            breath = 0.58 + 0.10 * math.sin(2 * math.pi * 0.40 * t)
+            open_ratio *= breath
+
+            if beh == "wink":
+                # Left eye winks while right stays alert!
+                if is_left:
+                    open_ratio *= 0.12
+                else:
+                    open_ratio = 0.85
+            elif beh == "curious":
+                # One eye slightly wider with curiosity
+                if is_left:
+                    open_ratio *= 1.25
+                else:
+                    open_ratio *= 0.75
+            elif beh == "smile":
+                is_smile = True
+                open_ratio = 1.0
+            elif beh == "heart":
+                is_heart = True
+                open_ratio = 0.95
+
         elif state == "sleeping":
-            open_ratio = 0.08  # Near-closed line
+            open_ratio = 0.08
         elif state == "happy":
-            open_ratio = 1.0  # Full open (arc drawn differently below)
+            is_smile = True
+            open_ratio = 1.0
         elif state == "active":
-            # Subtle quick pulse
             open_ratio *= 0.88 + 0.12 * math.sin(2 * math.pi * 2.5 * elapsed)
 
         draw_h = max(1.0, eh * open_ratio)
 
+        # ── Color variations for special states ───────────────────────────
+        draw_base = QColor(base_col)
+        draw_glow = QColor(glow_col)
+        if is_heart:
+            draw_base = QColor(255, 105, 180, 220)  # Hot pink / heart glow
+            draw_glow = QColor(255, 160, 210, 255)
+
         # ── Outer glow halo ───────────────────────────────────────────────
-        glow_alpha = int(glow_col.alpha() * 0.35)
-        glow_r = QColor(glow_col)
+        glow_alpha = int(draw_glow.alpha() * 0.38)
+        glow_r = QColor(draw_glow)
         glow_r.setAlpha(glow_alpha)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(glow_r))
         painter.drawEllipse(QRectF(ex - ew/2 - 2, ey - draw_h/2 - 2, ew + 4, draw_h + 4))
 
-        # ── Eye body ──────────────────────────────────────────────────────
-        if state == "happy" and open_ratio > 0.5:
-            # Draw upward arc (smile eye)
-            pen = QPen(glow_col, 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        # ── Eye Body ──────────────────────────────────────────────────────
+        if (state == "happy" or is_smile) and open_ratio > 0.4:
+            # Cute smile arc eye (^ ^)
+            pen = QPen(draw_glow, 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            rect = QRectF(ex - ew/2, ey - draw_h/2, ew, draw_h)
-            painter.drawArc(rect, 0 * 16, 180 * 16)    # top half arc
+            rect = QRectF(ex - ew/2, ey - draw_h/2 - 1, ew, draw_h)
+            painter.drawArc(rect, 15 * 16, 150 * 16)
         elif state == "error":
             # X shape
-            pen = QPen(base_col, 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+            pen = QPen(draw_base, 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             half = ew * 0.4
-            painter.drawLine(
-                int(ex - half), int(ey - half),
-                int(ex + half), int(ey + half)
-            )
-            painter.drawLine(
-                int(ex + half), int(ey - half),
-                int(ex - half), int(ey + half)
-            )
+            painter.drawLine(int(ex - half), int(ey - half), int(ex + half), int(ey + half))
+            painter.drawLine(int(ex + half), int(ey - half), int(ex - half), int(ey + half))
         else:
             # Standard filled oval
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(base_col))
+            painter.setBrush(QBrush(draw_base))
             painter.drawEllipse(QRectF(ex - ew/2, ey - draw_h/2, ew, draw_h))
 
-            # ── Retina (inner bright dot) ─────────────────────────────────
-            if draw_h > 2.0 and state not in ("sleeping", "error"):
-                retina_r = min(draw_h * 0.28, ew * 0.22)
+            # ── Retina / Pupil with Gaze Tracking ─────────────────────────
+            if draw_h > 2.2 and state not in ("sleeping", "error"):
+                retina_r = min(draw_h * 0.30, ew * 0.22)
 
                 if state == "active":
-                    # Spin retina in a small orbit
                     orbit_r = ew * 0.18
                     angle = self._spin_speed * elapsed
                     rx = ex + orbit_r * math.cos(angle)
                     ry = ey + orbit_r * math.sin(angle) * 0.5
                 elif state == "alert":
-                    # Slight jitter
                     rx = ex + 1.5 * math.sin(20 * elapsed)
                     ry = ey
                 else:
-                    rx, ry = ex, ey
+                    # Autonomous gaze saccades!
+                    rx = ex + self._gaze_x
+                    ry = ey + self._gaze_y
 
-                # Radial gradient for retina glow
                 grad = QRadialGradient(rx, ry, retina_r * 2)
-                grad.setColorAt(0.0, glow_col)
-                grad.setColorAt(1.0, QColor(glow_col.red(), glow_col.green(), glow_col.blue(), 0))
+                grad.setColorAt(0.0, draw_glow)
+                grad.setColorAt(1.0, QColor(draw_glow.red(), draw_glow.green(), draw_glow.blue(), 0))
                 painter.setBrush(QBrush(grad))
-                painter.drawEllipse(QRectF(rx - retina_r, ry - retina_r,
-                                           retina_r * 2, retina_r * 2))
+                painter.drawEllipse(QRectF(rx - retina_r, ry - retina_r, retina_r * 2, retina_r * 2))
 
         painter.restore()

@@ -23,6 +23,7 @@ os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 os.environ["QT_QPA_PLATFORM"] = "wayland;xcb"
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QGuiApplication, QCursor
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from backend.spotify_client import SpotifyClient
@@ -99,29 +100,61 @@ def main():
     server = QLocalServer()
     server.listen(SOCKET_NAME)
 
-    # ── Components ────────────────────────────────────────────────────────
+    # ── Components (Dual-Monitor Dynamic Islands) ─────────────────────────
     detector = GameMonitorDetector()
-    island   = DynamicIsland(target_screen_name=detector.current_target_screen)
-    watcher  = TaskWatcher()
-    hotkey   = HotkeyListener()
+    
+    # Discover all connected Wayland screens (e.g. HDMI-A-1, HDMI-A-2)
+    screens = QGuiApplication.screens()
+    islands = []
+    
+    if screens:
+        for s in screens:
+            isl = DynamicIsland(target_screen_name=s.name())
+            islands.append(isl)
+    else:
+        islands.append(DynamicIsland(target_screen_name=detector.current_target_screen))
 
-    # Screen management
-    detector.target_screen_changed.connect(island.set_target_screen)
+    watcher = TaskWatcher()
+    hotkey  = HotkeyListener()
+
+    # Determine which island is currently active under the mouse
+    def get_focused_island() -> DynamicIsland:
+        cursor_pos = QCursor.pos()
+        for isl in islands:
+            target_scr = None
+            for s in QGuiApplication.screens():
+                if s.name() == isl.target_screen_name:
+                    target_scr = s
+                    break
+            if target_scr and target_scr.geometry().contains(cursor_pos):
+                return isl
+        return islands[0] if islands else None
+
+    def toggle_all_or_focused_panel():
+        # Toggle on the monitor where the cursor currently resides
+        focused = get_focused_island()
+        if focused:
+            focused.toggle_quick_panel()
+        else:
+            for isl in islands:
+                isl.toggle_quick_panel()
 
     # Hotkey trigger (Ctrl+Alt+Space / Grave / P) toggles the Control Panel
-    hotkey.toggle_panel.connect(island.toggle_quick_panel)
+    hotkey.toggle_panel.connect(toggle_all_or_focused_panel)
     hotkey.start()
 
-    # Spotify Client
+    # Spotify Client broadcast to all islands
     spotify = SpotifyClient()
-    spotify.status_changed.connect(island.on_playback_status)
-    spotify.track_changed.connect(island.on_track_changed)
+    for isl in islands:
+        spotify.status_changed.connect(isl.on_playback_status)
+        spotify.track_changed.connect(isl.on_track_changed)
 
-    # Task Watcher
-    watcher.task_started.connect(island.on_task_started)
-    watcher.task_done.connect(island.on_task_done)
-    watcher.task_waiting.connect(island.on_task_waiting)
-    watcher.task_cancelled.connect(island.on_task_cancelled)
+    # Task Watcher broadcast to all islands
+    for isl in islands:
+        watcher.task_started.connect(isl.on_task_started)
+        watcher.task_done.connect(isl.on_task_done)
+        watcher.task_waiting.connect(isl.on_task_waiting)
+        watcher.task_cancelled.connect(isl.on_task_cancelled)
 
     # ── IPC handler ───────────────────────────────────────────────────────
     def handle_ipc():
@@ -135,16 +168,20 @@ def main():
                 if cmd == "quit":
                     app.quit()
                 elif cmd in ("toggle_panel", "toggle"):
-                    island.toggle_quick_panel()
+                    toggle_all_or_focused_panel()
                 elif cmd in ("bloom_open", "bloom"):
-                    island.trigger_notch_bloom_open()
+                    for isl in islands:
+                        isl.trigger_notch_bloom_open()
                 elif cmd == "bloom_close":
-                    island.trigger_notch_bloom_close()
+                    for isl in islands:
+                        isl.trigger_notch_bloom_close()
                 elif cmd == "test_buds":
-                    island._on_accessory_connected("Galaxy Buds2 (A51C)", 85)
+                    for isl in islands:
+                        isl._on_accessory_connected("Galaxy Buds2 (A51C)", 85)
                 elif cmd.startswith("test_notif:"):
                     msg = cmd[len("test_notif:"):]
-                    island._on_notification("Discord", "Yeni Mesaj", msg, "")
+                    for isl in islands:
+                        isl._on_notification("Discord", "Yeni Mesaj", msg, "")
                 elif cmd == "ping":
                     pass
                 elif cmd.startswith("task_"):
