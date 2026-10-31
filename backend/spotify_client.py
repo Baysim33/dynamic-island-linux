@@ -42,6 +42,22 @@ class SpotifyClient(QObject):
         except Exception:
             return "Stopped", None
 
+    def get_progress(self):
+        """Returns (position_sec, length_sec, ratio 0.0-1.0)"""
+        try:
+            bus = dbus.SessionBus()
+            spotify = bus.get_object("org.mpris.MediaPlayer2.spotify", "/org/mpris/MediaPlayer2")
+            props = dbus.Interface(spotify, "org.freedesktop.DBus.Properties")
+            pos_us = int(props.Get("org.mpris.MediaPlayer2.Player", "Position"))
+            meta = props.Get("org.mpris.MediaPlayer2.Player", "Metadata")
+            len_us = int(meta.get("mpris:length", 0))
+            pos_s = pos_us // 1000000
+            len_s = len_us // 1000000
+            ratio = min(1.0, max(0.0, pos_s / float(len_s))) if len_s > 0 else 0.0
+            return pos_s, len_s, ratio
+        except Exception:
+            return 0, 0, 0.0
+
     def _download_cover(self, url: str) -> str:
         if not url:
             return ""

@@ -1,11 +1,13 @@
 """
-Robo Island — Unified Apple iPhone 14/15 Dynamic Island + Quick Control Panel
-Matches user's reference designs:
-  - Tab 0: Media Player (Image 2 style with large white round Play/Pause button, seek bar, album art)
-  - Tab 1: Wi-Fi Manager (Image 4 style with switch & active/available network cards)
-  - Tab 2: Widgets & Battery (Image 5 style with Weather, CPU/RAM bars, KDE Connect Phone & BT Headset battery)
-  - Accessory Pop-up Card (Image 3 style when Bluetooth earbuds connect)
-  - Live System Notification banner directly from the Dynamic Island!
+Robo Island — Unified Apple iPhone 14/15 Dynamic Island + NotchNook Control Center
+- Delicate, compact, and sleek ("kibar ve küçük")
+- Elastic spring physics with Apple-style bounce & elasticity
+- Live Digital Clock & Date (replacing temperature badge)
+- Precision Wayland LayerShell hit-testing (clicking the notch directly opens panel!)
+- Connected Devices: KDE Connect Phone battery & Bluetooth Earbuds battery ring
+- Live Spotify track progress bar, album art, and controls
+- Hardware telemetry: CPU, RAM, Volume slider, Wi-Fi, and Night Light toggles
+- System notifications route through the Dynamic Island with spring dropdown
 """
 import os
 import re
@@ -17,7 +19,7 @@ import shiboken6
 from PySide6.QtWidgets import QWidget, QApplication
 from PySide6.QtGui import (QPainter, QColor, QBrush, QPen, QFont,
                             QPixmap, QGuiApplication, QLinearGradient, QCursor, QPainterPath)
-from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, Signal
+from PySide6.QtCore import Qt, QTimer, QRectF, QPointF
 
 from graphics.ash_particles import AshCoverCanvas
 from ui.visualizer import MiniVisualizer
@@ -32,40 +34,41 @@ LIB_LAYERSHELL_PATH = os.path.join(
 )
 
 # ── Modes ─────────────────────────────────────────────────────────────────────
-MODE_IDLE            = 1   # Notch: Sleeping/idle Robo eyes + temp badge
-MODE_MUSIC_COMPACT   = 2   # Notch: Spotify track + dancing visualizer + temp badge
-MODE_MUSIC_EXPANDED  = 3   # Notch: Ash wind particle track change (4.5s)
+MODE_IDLE            = 1   # Notch: Sleeping/idle Robo eyes + Clock badge
+MODE_MUSIC_COMPACT   = 2   # Notch: Spotify track + dancing visualizer + Clock badge
+MODE_MUSIC_EXPANDED  = 3   # Notch: Ash wind particle track change (4s)
 MODE_TASK_RUNNING    = 4   # Notch: Active AI task (cyan spinning eyes)
 MODE_TASK_DONE       = 5   # Notch: Task completed (green happy eyes)
 MODE_TASK_WAITING    = 6   # Notch: Waiting for approval (amber alert eyes)
 MODE_GREETING        = 7   # Notch: "Hi, I'm Robo!"
 MODE_NOTIFICATION    = 8   # Notch: System Notification banner popup (4.5s)
 MODE_ACCESSORY_POPUP = 9   # Notch: Bluetooth Headset connected card (4s)
-MODE_QUICK_PANEL     = 10  # Full Expanded Control Panel (Carousel tabs)
+MODE_QUICK_PANEL     = 10  # NotchNook Expanded Control Center!
 
+# Refined, delicate proportions ("kibar ve küçük")
 MODE_DIMS = {
-    MODE_IDLE:            (180,  38),
-    MODE_MUSIC_COMPACT:   (240,  38),
-    MODE_MUSIC_EXPANDED:  (440, 110),
-    MODE_TASK_RUNNING:    (280,  44),
-    MODE_TASK_DONE:       (280,  44),
-    MODE_TASK_WAITING:    (300,  48),
-    MODE_GREETING:        (210,  42),
-    MODE_NOTIFICATION:    (420,  80),
-    MODE_ACCESSORY_POPUP: (300, 150),
-    MODE_QUICK_PANEL:     (480, 265),
+    MODE_IDLE:            (165,  34),
+    MODE_MUSIC_COMPACT:   (235,  34),
+    MODE_MUSIC_EXPANDED:  (420, 100),
+    MODE_TASK_RUNNING:    (260,  38),
+    MODE_TASK_DONE:       (260,  38),
+    MODE_TASK_WAITING:    (280,  42),
+    MODE_GREETING:        (190,  36),
+    MODE_NOTIFICATION:    (390,  76),
+    MODE_ACCESSORY_POPUP: (280, 130),
+    MODE_QUICK_PANEL:     (455, 188),  # NotchNook sleek 2-card layout
 }
 
 ACCENT       = QColor(146, 110, 228)        # #926ee4
 ACCENT_LIGHT = QColor(180, 150, 250)        # #b496fa
 ACCENT_CYAN  = QColor(0,   200, 255)
 ACCENT_GREEN = QColor(29,  185,  84)
-BG_NOTCH     = QColor(11,  11,  16,  252)   # Apple matte black
-BG_PANEL     = QColor(14,  13,  22,  252)
+BG_NOTCH     = QColor(10,  10,  15,  252)   # Deep Apple Matte Black
+BG_PANEL     = QColor(12,  11,  18,  252)
 
 
 class DynamicIsland(QWidget):
-    """Unified Dynamic Island, Notification Engine & Multi-tab Control Center."""
+    """Unified Dynamic Island & NotchNook Control Center."""
 
     def __init__(self, target_screen_name: str = "HDMI-A-1", parent=None):
         super().__init__(parent)
@@ -76,33 +79,34 @@ class DynamicIsland(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setMouseTracking(True)
 
-        # Canvas bounds (large enough for expanded panel)
-        self.canvas_width  = 560
-        self.canvas_height = 300
+        # Canvas bounds (ample room for expanded panel)
+        self.canvas_width  = 520
+        self.canvas_height = 240
         self.setFixedSize(self.canvas_width, self.canvas_height)
 
-        # ── Animated pill dimensions ──────────────────────────────────────
-        self._pill_width  = 0.0
-        self._pill_height = 0.0
+        # ── Elastic Spring Physics State ──────────────────────────────────
+        self._pill_width   = 0.0
+        self._pill_height  = 0.0
+        self._vel_w        = 0.0
+        self._vel_h        = 0.0
         self.target_width  = 0.0
         self.target_height = 0.0
         self.current_mode  = MODE_IDLE
-        self._previous_mode = MODE_IDLE
 
-        # Carousel page index for Quick Panel (0: Media, 1: Wi-Fi, 2: Widgets & Battery)
-        self.current_page = 0
-
-        # ── Mouse & Hover state ───────────────────────────────────────────
+        # ── Mouse & Hover State ───────────────────────────────────────────
         self._hover_pos = QPointF(-100, -100)
         self._is_dragging_volume = False
 
-        # ── Spotify state ─────────────────────────────────────────────────
+        # ── Spotify State ─────────────────────────────────────────────────
         self.title_text  = ""
         self.artist_text = ""
         self.album_text  = ""
         self.is_playing  = False
         self.cover_pixmap: QPixmap | None = None
         self.mini_cover_pixmap: QPixmap | None = None
+        self.song_pos_s  = 0
+        self.song_len_s  = 0
+        self.song_ratio  = 0.0
 
         # ── System Telemetry & Devices ────────────────────────────────────
         self.system_volume = 50
@@ -114,7 +118,6 @@ class DynamicIsland(QWidget):
         self.notif_app   = ""
         self.notif_title = ""
         self.notif_body  = ""
-        self.notif_icon  = ""
 
         # Accessory state
         self.acc_name = ""
@@ -132,19 +135,16 @@ class DynamicIsland(QWidget):
         # Wi-Fi & HW
         self.wifi_enabled = True
         self.connected_ssid = ""
-        self.networks = []
         self.cpu_usage = 0
         self.ram_usage = 0
-        self.weather_temp = "19°"
-        self.weather_cond = "Açık"
 
         # Task state
         self._task_label = ""
         self._task_dots  = 0
 
         # ── Sub-widgets ───────────────────────────────────────────────────
-        self.cover_canvas = AshCoverCanvas(size=84, parent=self)
-        self.cover_canvas.setGeometry(16, 12, 144, 84)
+        self.cover_canvas = AshCoverCanvas(size=76, parent=self)
+        self.cover_canvas.setGeometry(16, 12, 136, 76)
         self.cover_canvas.hide()
 
         self.visualizer = MiniVisualizer(bars_count=4, bar_color=ACCENT_GREEN, parent=self)
@@ -165,11 +165,13 @@ class DynamicIsland(QWidget):
         self.net_manager.telemetry_updated.connect(self._on_telemetry_updated)
 
         # ── Timers ────────────────────────────────────────────────────────
+        # 144Hz physics spring update (7ms)
         self.anim_timer = QTimer(self)
         self.anim_timer.setInterval(7)
         self.anim_timer.timeout.connect(self._step_dimensions)
         self.anim_timer.start()
 
+        # 60fps paint tick
         self.robo_timer = QTimer(self)
         self.robo_timer.setInterval(16)
         self.robo_timer.timeout.connect(self.update)
@@ -177,12 +179,12 @@ class DynamicIsland(QWidget):
 
         self.collapse_timer = QTimer(self)
         self.collapse_timer.setSingleShot(True)
-        self.collapse_timer.setInterval(4500)
+        self.collapse_timer.setInterval(4000)
         self.collapse_timer.timeout.connect(self._on_collapse_timeout)
 
         self.notif_timer = QTimer(self)
         self.notif_timer.setSingleShot(True)
-        self.notif_timer.setInterval(5000)
+        self.notif_timer.setInterval(4500)
         self.notif_timer.timeout.connect(self._on_collapse_timeout)
 
         self.acc_timer = QTimer(self)
@@ -190,21 +192,23 @@ class DynamicIsland(QWidget):
         self.acc_timer.setInterval(4000)
         self.acc_timer.timeout.connect(self._on_collapse_timeout)
 
-        # Telemetry sync
+        # Audio & Progress sync timer (every 1s)
         self.sync_timer = QTimer(self)
-        self.sync_timer.setInterval(2000)
+        self.sync_timer.setInterval(1000)
         self.sync_timer.timeout.connect(self._sync_audio_telemetry)
         self.sync_timer.start()
 
         # LayerShell Setup
         self.update_screen_position(target_screen_name)
         self.show()
-        self.set_click_through(True)
+
+        # Initial precision input region
+        self._update_input_region()
 
         # Initial greeting
         QTimer.singleShot(800, self._show_greeting)
 
-    # ── LayerShell & Click-Through ────────────────────────────────────────────
+    # ── Precision Wayland LayerShell Hit-Testing ──────────────────────────────
 
     def _setup_layershell(self, target_screen):
         try:
@@ -227,7 +231,8 @@ class DynamicIsland(QWidget):
         except Exception:
             return False
 
-    def set_click_through(self, enable: bool):
+    def _update_input_region(self):
+        """Sets input region to precisely match the visible pill bounds!"""
         try:
             if not os.path.exists(LIB_LAYERSHELL_PATH):
                 return
@@ -235,10 +240,16 @@ class DynamicIsland(QWidget):
             if not wh:
                 return
             lib = ctypes.CDLL(LIB_LAYERSHELL_PATH)
-            lib.set_click_through.argtypes = [ctypes.c_void_p, ctypes.c_bool]
-            lib.set_click_through.restype = ctypes.c_bool
+            lib.set_input_rect.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+            lib.set_input_rect.restype = ctypes.c_bool
+
+            cx = self.width() / 2.0
+            x = int(cx - (self._pill_width / 2.0))
+            w = int(self._pill_width)
+            h = int(self._pill_height)
+
             ptr_wh = shiboken6.getCppPointer(wh)[0]
-            lib.set_click_through(ptr_wh, enable)
+            lib.set_input_rect(ptr_wh, x, 0, w, h)
         except Exception:
             pass
 
@@ -269,15 +280,12 @@ class DynamicIsland(QWidget):
         self.notif_app   = app_name
         self.notif_title = summary
         self.notif_body  = body
-        self.notif_icon  = icon
 
-        # Don't interrupt open control panel
         if self.current_mode == MODE_QUICK_PANEL:
             return
 
         self.set_mode(MODE_NOTIFICATION)
         self.notif_timer.start()
-        print(f"[RoboIsland] Notification from {app_name}: {summary}")
 
     def _on_accessory_connected(self, dev_name, battery_pct):
         self.acc_name = dev_name
@@ -288,7 +296,6 @@ class DynamicIsland(QWidget):
 
         self.set_mode(MODE_ACCESSORY_POPUP)
         self.acc_timer.start()
-        print(f"[RoboIsland] Accessory connected: {dev_name} ({battery_pct}%)")
 
     def _on_battery_updated(self, data):
         phone = data.get("phone", {})
@@ -305,25 +312,38 @@ class DynamicIsland(QWidget):
     def _on_telemetry_updated(self, data):
         self.cpu_usage = data.get("cpu", 0)
         self.ram_usage = data.get("ram", 0)
-        self.weather_temp = data.get("weather_temp", "19°")
-        self.weather_cond = data.get("weather_cond", "Açık")
         self.wifi_enabled = data.get("wifi_enabled", True)
         self.connected_ssid = data.get("connected_ssid", "")
-        self.networks = data.get("networks", [])
         self.update()
 
     def _sync_audio_telemetry(self):
+        # 1. Volume & Mute
         try:
-            res = subprocess.run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], capture_output=True, text=True, timeout=0.3)
+            res = subprocess.run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], capture_output=True, text=True, timeout=0.2)
             m = re.search(r'(\d+)%', res.stdout)
             if m:
                 self.system_volume = int(m.group(1))
-            res_mute = subprocess.run(["pactl", "get-sink-mute", "@DEFAULT_SINK@"], capture_output=True, text=True, timeout=0.3)
+            res_mute = subprocess.run(["pactl", "get-sink-mute", "@DEFAULT_SINK@"], capture_output=True, text=True, timeout=0.2)
             self.is_muted = ("yes" in res_mute.stdout.lower())
         except Exception:
             pass
 
-    # ── Hotkey / Quick Control Panel Toggle ───────────────────────────────────
+        # 2. Spotify Track Progress
+        if self.is_playing:
+            try:
+                p_out = subprocess.run(
+                    ["qdbus6", "org.mpris.MediaPlayer2.spotify", "/org/mpris/MediaPlayer2",
+                     "org.freedesktop.DBus.Properties.Get", "org.mpris.MediaPlayer2.Player", "Position"],
+                    capture_output=True, text=True, timeout=0.2
+                ).stdout.strip()
+                if p_out.isdigit():
+                    self.song_pos_s = int(p_out) // 1000000
+                    if self.song_len_s > 0:
+                        self.song_ratio = min(1.0, max(0.0, self.song_pos_s / float(self.song_len_s)))
+            except Exception:
+                pass
+
+    # ── Hotkey / Quick Control Center Toggle ──────────────────────────────────
 
     def toggle_quick_panel(self):
         if self.current_mode == MODE_QUICK_PANEL:
@@ -332,14 +352,11 @@ class DynamicIsland(QWidget):
             self.open_quick_panel()
 
     def open_quick_panel(self):
-        self._previous_mode = self.current_mode
         self._sync_audio_telemetry()
         self.set_mode(MODE_QUICK_PANEL)
-        self.set_click_through(False)  # MOUSE INTERACTIVE!
         self.update()
 
     def close_quick_panel(self):
-        self.set_click_through(True)   # CLICK-THROUGH RESTORED!
         if self.is_playing:
             self.set_mode(MODE_MUSIC_COMPACT)
         else:
@@ -372,11 +389,24 @@ class DynamicIsland(QWidget):
             new_pixmap.load(cover_path)
             self.cover_pixmap = new_pixmap
             self.mini_cover_pixmap = new_pixmap.scaled(
-                22, 22, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation
+                20, 20, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation
             )
         else:
             self.cover_pixmap = None
             self.mini_cover_pixmap = None
+
+        # Fetch track length
+        try:
+            meta = subprocess.run(
+                ["qdbus6", "org.mpris.MediaPlayer2.spotify", "/org/mpris/MediaPlayer2",
+                 "org.freedesktop.DBus.Properties.Get", "org.mpris.MediaPlayer2.Player", "Metadata"],
+                capture_output=True, text=True, timeout=0.3
+            ).stdout
+            m = re.search(r'mpris:length:\s*(\d+)', meta)
+            if m:
+                self.song_len_s = int(m.group(1)) // 1000000
+        except Exception:
+            self.song_len_s = 0
 
         if not new_pixmap.isNull():
             self.cover_canvas.transition_to(new_pixmap)
@@ -399,7 +429,7 @@ class DynamicIsland(QWidget):
         self._task_label = message
         if self.current_mode != MODE_QUICK_PANEL:
             self.set_mode(MODE_TASK_DONE)
-            QTimer.singleShot(4000, self._on_collapse_timeout)
+            QTimer.singleShot(3500, self._on_collapse_timeout)
 
     def on_task_waiting(self, message: str):
         self._task_label = message
@@ -415,7 +445,7 @@ class DynamicIsland(QWidget):
 
     def set_mode(self, mode: int):
         self.current_mode = mode
-        tw, th = MODE_DIMS.get(mode, (180, 38))
+        tw, th = MODE_DIMS.get(mode, (165, 34))
         self.target_width  = float(tw)
         self.target_height = float(th)
 
@@ -441,7 +471,7 @@ class DynamicIsland(QWidget):
     def _show_greeting(self):
         self._task_label = "Hi, I'm Robo!"
         self.set_mode(MODE_GREETING)
-        QTimer.singleShot(2600, self._after_greeting)
+        QTimer.singleShot(2400, self._after_greeting)
 
     def _after_greeting(self):
         self._task_label = ""
@@ -458,34 +488,28 @@ class DynamicIsland(QWidget):
         else:
             self._enter_idle()
 
-    def _step_dimensions(self):
-        diff_w = self.target_width  - self._pill_width
-        diff_h = self.target_height - self._pill_height
-        if abs(diff_w) > 0.5 or abs(diff_h) > 0.5:
-            self._pill_width  += diff_w * 0.18
-            self._pill_height += diff_h * 0.18
-            self.update()
-        else:
-            self._pill_width  = self.target_width
-            self._pill_height = self.target_height
-            self.update()
+    # ── Elastic Damped Spring Physics (Apple Rubbery Bounce) ──────────────────
 
-    # ── Mouse Interaction in Quick Panel ──────────────────────────────────────
+    def _step_dimensions(self):
+        # Damped harmonic oscillator with slight elasticity
+        stiffness = 0.22
+        damping   = 0.72
+
+        force_w = (self.target_width - self._pill_width) * stiffness
+        self._vel_w = (self._vel_w + force_w) * damping
+        self._pill_width += self._vel_w
+
+        force_h = (self.target_height - self._pill_height) * stiffness
+        self._vel_h = (self._vel_h + force_h) * damping
+        self._pill_height += self._vel_h
+
+        # Update Wayland input region so mouse clicks land perfectly
+        if abs(self._vel_w) > 0.05 or abs(self._vel_h) > 0.05:
+            self._update_input_region()
+
+    # ── Mouse Interaction ─────────────────────────────────────────────────────
 
     def mousePressEvent(self, event):
-        if self.current_mode != MODE_QUICK_PANEL:
-            # Clicking the compact notch opens the control panel!
-            pos = event.position()
-            cx = self.width() / 2.0
-            x  = cx - self._pill_width / 2.0
-            pill_rect = QRectF(x, 0, self._pill_width, self._pill_height)
-            if pill_rect.contains(pos):
-                self.open_quick_panel()
-                event.accept()
-                return
-            super().mousePressEvent(event)
-            return
-
         pos = event.position()
         cx = self.width() / 2.0
         x  = cx - self._pill_width / 2.0
@@ -493,114 +517,72 @@ class DynamicIsland(QWidget):
         w  = self._pill_width
         h  = self._pill_height
 
-        # 1. Top Icons: Wi-Fi, Bluetooth, Airplane, Eco, Settings [✕]
-        icon_w = 34
-        gap = 8
-        start_x = x + 16
-
-        # Wi-Fi icon -> switch to Tab 1
-        wifi_rect = QRectF(start_x, y + 10, icon_w, icon_w)
-        if wifi_rect.contains(pos):
-            self.current_page = 1
-            event.accept()
-            self.update()
+        # 1. Clicking on Notch while resting -> Instantly Open Quick Panel!
+        if self.current_mode != MODE_QUICK_PANEL:
+            pill_rect = QRectF(x, 0, w, h)
+            if pill_rect.contains(pos):
+                self.open_quick_panel()
+                event.accept()
+                return
+            super().mousePressEvent(event)
             return
 
-        # BT icon -> toggle bluetooth
-        bt_rect = QRectF(start_x + (icon_w + gap), y + 10, icon_w, icon_w)
-        if bt_rect.contains(pos):
-            self.net_manager.toggle_bluetooth()
-            event.accept()
-            self.update()
-            return
-
-        # Airplane icon
-        air_rect = QRectF(start_x + (icon_w + gap) * 2, y + 10, icon_w, icon_w)
-        if air_rect.contains(pos):
-            self.net_manager.toggle_airplane()
-            event.accept()
-            self.update()
-            return
-
-        # Eco / GameMode icon
-        eco_rect = QRectF(start_x + (icon_w + gap) * 3, y + 10, icon_w, icon_w)
-        if eco_rect.contains(pos):
-            self.gamemode_on = not self.gamemode_on
-            event.accept()
-            self.update()
-            return
-
-        # Settings / Close [✕] icon on far right
-        close_rect = QRectF(x + w - 44, y + 10, icon_w, icon_w)
+        # ── 2. Click Handling in Expanded NotchNook Panel ─────────────────
+        # Close button [✕] (top right)
+        close_rect = QRectF(x + w - 32, y + 8, 22, 22)
         if close_rect.contains(pos):
             self.close_quick_panel()
             event.accept()
             return
 
-        # 2. Bottom Carousel Dots Indicator (Tab 0, 1, 2)
-        dot_y = y + h - 20
-        dot_cx = x + w / 2.0
-        for i in range(3):
-            dot_rect = QRectF(dot_cx - 24 + i * 16, dot_y, 16, 16)
-            if dot_rect.contains(pos):
-                self.current_page = i
-                event.accept()
-                self.update()
-                return
+        # Play/Pause big inverted button
+        play_rect = QRectF(x + 194, y + 138, 38, 38)
+        if play_rect.contains(pos):
+            subprocess.run(["qdbus6", "org.mpris.MediaPlayer2.spotify", "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player.PlayPause"], timeout=0.3)
+            self.is_playing = not self.is_playing
+            self.update()
+            event.accept()
+            return
 
-        # ── Page-Specific Interaction ─────────────────────────────────────
-        if self.current_page == 0:
-            # TAB 0: Media Player
-            # Controls: Prev, Play/Pause, Next
-            ctrl_y = y + 76
-            prev_rect = QRectF(x + w - 146, ctrl_y, 34, 34)
-            play_rect = QRectF(x + w - 104, ctrl_y - 4, 42, 42)
-            next_rect = QRectF(x + w - 54,  ctrl_y, 34, 34)
+        # Previous (⏮)
+        prev_rect = QRectF(x + 152, y + 142, 30, 30)
+        if prev_rect.contains(pos):
+            subprocess.run(["qdbus6", "org.mpris.MediaPlayer2.spotify", "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player.Previous"], timeout=0.3)
+            event.accept()
+            return
 
-            if prev_rect.contains(pos):
-                subprocess.run(["qdbus6", "org.mpris.MediaPlayer2.spotify", "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player.Previous"], timeout=0.3)
-                event.accept()
-                return
+        # Next (⏭)
+        next_rect = QRectF(x + 242, y + 142, 30, 30)
+        if next_rect.contains(pos):
+            subprocess.run(["qdbus6", "org.mpris.MediaPlayer2.spotify", "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player.Next"], timeout=0.3)
+            event.accept()
+            return
 
-            if play_rect.contains(pos):
-                subprocess.run(["qdbus6", "org.mpris.MediaPlayer2.spotify", "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player.PlayPause"], timeout=0.3)
-                self.is_playing = not self.is_playing
-                self.update()
-                event.accept()
-                return
+        # Volume Slider drag/click in Tile 2
+        vol_rect = QRectF(x + w - 146, y + 96, 126, 16)
+        if vol_rect.contains(pos):
+            self._is_dragging_volume = True
+            norm = (pos.x() - (x + w - 146)) / 126.0
+            pct = int(norm * 100)
+            self._set_volume(pct)
+            event.accept()
+            return
 
-            if next_rect.contains(pos):
-                subprocess.run(["qdbus6", "org.mpris.MediaPlayer2.spotify", "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player.Next"], timeout=0.3)
-                event.accept()
-                return
+        # Wi-Fi Quick Toggle
+        wifi_btn = QRectF(x + w - 146, y + 132, 60, 32)
+        if wifi_btn.contains(pos):
+            self.net_manager.toggle_wifi()
+            event.accept()
+            self.update()
+            return
 
-            # Seek / Volume bar click
-            bar_rect = QRectF(x + 106, y + 144, w - 130, 20)
-            if bar_rect.contains(pos):
-                norm = (pos.x() - (x + 106)) / (w - 130)
-                pct = int(norm * 100)
-                try:
-                    subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{pct}%"], timeout=0.3)
-                    self.system_volume = pct
-                except Exception:
-                    pass
-                event.accept()
-                self.update()
-                return
-
-        elif self.current_page == 1:
-            # TAB 1: Wi-Fi Manager
-            # Wi-Fi switch toggle
-            sw_rect = QRectF(x + w - 66, y + 54, 46, 24)
-            if sw_rect.contains(pos):
-                self.net_manager.toggle_wifi()
-                event.accept()
-                self.update()
-                return
-
-        elif self.current_page == 2:
-            # TAB 2: Widgets & Battery
-            pass
+        # Night Light Quick Toggle
+        nl_btn = QRectF(x + w - 78, y + 132, 60, 32)
+        if nl_btn.contains(pos):
+            self._toggle_night_light()
+            event.accept()
+            self.update()
+            return
 
         # Clicking outside card -> close
         panel_rect = QRectF(x, y, w, h)
@@ -611,13 +593,18 @@ class DynamicIsland(QWidget):
 
     def mouseMoveEvent(self, event):
         self._hover_pos = event.position()
+        if self.current_mode == MODE_QUICK_PANEL and self._is_dragging_volume:
+            cx = self.width() / 2.0
+            x  = cx - self._pill_width / 2.0
+            w  = self._pill_width
+            norm = (event.position().x() - (x + w - 146)) / 126.0
+            self._set_volume(int(norm * 100))
         self.update()
         super().mouseMoveEvent(event)
 
-    def leaveEvent(self, event):
-        self._hover_pos = QPointF(-100, -100)
-        self.update()
-        super().leaveEvent(event)
+    def mouseReleaseEvent(self, event):
+        self._is_dragging_volume = False
+        super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
@@ -626,6 +613,27 @@ class DynamicIsland(QWidget):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def _set_volume(self, pct: int):
+        pct = max(0, min(100, pct))
+        self.system_volume = pct
+        try:
+            subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{pct}%"], timeout=0.2)
+        except Exception:
+            pass
+        self.update()
+
+    def _toggle_night_light(self):
+        try:
+            if self.night_light_on:
+                subprocess.run(["qdbus6", "org.kde.KWin", "/org/kde/KWin/NightLight", "stopPreview"], timeout=0.3)
+                self.night_light_on = False
+            else:
+                subprocess.run(["qdbus6", "org.kde.KWin", "/org/kde/KWin/NightLight", "preview", "4500"], timeout=0.3)
+                self.night_light_on = True
+        except Exception:
+            pass
+        self.update()
 
     # ── Paint Engine ──────────────────────────────────────────────────────────
 
@@ -642,34 +650,33 @@ class DynamicIsland(QWidget):
         w  = self._pill_width
         h  = self._pill_height
         mode = self.current_mode
-        radius = min(h / 2.0, 24.0)
 
+        # Apple notch / dynamic island curved shoulder
+        radius = min(h / 2.0, 20.0)
         pill_rect = QRectF(x, y, w, h)
 
         if mode == MODE_QUICK_PANEL:
-            # Quick Control Center Panel
-            p.setPen(QPen(QColor(146, 110, 228, 140), 1.4))
+            # NotchNook Card
+            p.setPen(QPen(QColor(146, 110, 228, 110), 1.2))
             p.setBrush(QBrush(BG_PANEL))
-            p.drawRoundedRect(pill_rect, radius, radius)
-            self._paint_quick_panel(p, x, y, w, h)
+            p.drawRoundedRect(pill_rect, 22, 22)
+            self._paint_notchnook_panel(p, x, y, w, h)
 
         elif mode == MODE_NOTIFICATION:
-            # System Notification Banner
-            p.setPen(QPen(ACCENT_CYAN, 1.4))
+            p.setPen(QPen(ACCENT_CYAN, 1.3))
             p.setBrush(QBrush(BG_NOTCH))
             p.drawRoundedRect(pill_rect, radius, radius)
             self._paint_notification(p, x, y, w, h)
 
         elif mode == MODE_ACCESSORY_POPUP:
-            # Bluetooth Accessory Connected Popup (AirPods / Galaxy Buds style)
-            p.setPen(QPen(QColor(255, 255, 255, 60), 1.4))
+            p.setPen(QPen(QColor(255, 255, 255, 60), 1.2))
             p.setBrush(QBrush(BG_NOTCH))
-            p.drawRoundedRect(pill_rect, 22, 22)
+            p.drawRoundedRect(pill_rect, 20, 20)
             self._paint_accessory_popup(p, x, y, w, h)
 
         else:
-            # Resting iPhone Dynamic Island Notch
-            p.setPen(QPen(QColor(146, 110, 228, 80), 1.2))
+            # Compact Apple Dynamic Island
+            p.setPen(QPen(QColor(146, 110, 228, 75), 1.1))
             p.setBrush(QBrush(BG_NOTCH))
             p.drawRoundedRect(pill_rect, radius, radius)
 
@@ -686,389 +693,320 @@ class DynamicIsland(QWidget):
 
         p.end()
 
-    # ── Render: Resting Notch Modes ───────────────────────────────────────────
+    # ── Render: Notch Modes (Compact & Delicate) ──────────────────────────────
 
     def _paint_notch_idle(self, p: QPainter, x, y, w, h):
-        """Idle Notch: Left Robo Eyes, Right Weather / Battery pill."""
-        self.robo.draw(p, x + 30, y + h / 2.0, eye_w=12, eye_h=8)
+        """Idle Notch: Left Robo Eyes, Right Live Clock."""
+        self.robo.draw(p, x + 26, y + h / 2.0, eye_w=10, eye_h=7)
 
-        # Weather / Battery badge on right
+        # Live Digital Clock badge on right (Image 1 & user request: SAAT!)
+        current_time = time.strftime("%H:%M")
         p.setFont(QFont("Noto Sans", 9, QFont.Weight.Bold))
-        badge_rect = QRectF(x + w - 50, y + (h - 22) / 2.0, 42, 22)
+        badge_rect = QRectF(x + w - 48, y + (h - 20) / 2.0, 40, 20)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(30, 25, 45, 180)))
-        p.drawRoundedRect(badge_rect, 11, 11)
+        p.setBrush(QBrush(QColor(25, 20, 36, 200)))
+        p.drawRoundedRect(badge_rect, 10, 10)
         p.setPen(QColor(240, 240, 255))
-        p.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, self.weather_temp)
+        p.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, current_time)
 
     def _paint_notch_music(self, p: QPainter, x, y, w, h):
-        """Music Notch: Mini cover / gradient dot + dancing visualizer bars + weather badge."""
+        """Music Notch: Mini cover + title + dancing visualizer bars + Clock."""
         if self.mini_cover_pixmap:
-            icon_rect = QRectF(x + 10, y + (h - 22) / 2.0, 22, 22)
+            icon_rect = QRectF(x + 8, y + (h - 20) / 2.0, 20, 20)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QBrush(self.mini_cover_pixmap))
-            p.drawRoundedRect(icon_rect, 11, 11)
+            p.drawRoundedRect(icon_rect, 10, 10)
         else:
-            # Gradient dot
-            grad = QLinearGradient(x + 10, y + 8, x + 30, y + 28)
+            grad = QLinearGradient(x + 8, y + 7, x + 28, y + 27)
             grad.setColorAt(0.0, QColor(255, 0, 128))
             grad.setColorAt(1.0, QColor(0, 200, 255))
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QBrush(grad))
-            p.drawEllipse(QRectF(x + 10, y + (h - 20) / 2.0, 20, 20))
+            p.drawEllipse(QRectF(x + 8, y + (h - 20) / 2.0, 20, 20))
 
         # Dancing Audio Bars
-        self.visualizer.move(int(x + 36), int(y + (h - 18) / 2.0))
+        self.visualizer.move(int(x + 32), int(y + (h - 18) / 2.0))
 
         # Title
-        p.setFont(QFont("Noto Sans", 9, QFont.Weight.DemiBold))
+        p.setFont(QFont("Noto Sans", 8, QFont.Weight.DemiBold))
         p.setPen(QColor(240, 240, 248))
-        text_rect = QRectF(x + 64, y + (h - 18) / 2.0, w - 120, 18)
+        text_rect = QRectF(x + 58, y + (h - 18) / 2.0, w - 110, 18)
         p.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.title_text[:16])
 
-        # Temperature badge on right (Image 1 style: "19°")
-        p.setFont(QFont("Noto Sans", 9, QFont.Weight.Bold))
-        badge_rect = QRectF(x + w - 48, y + (h - 22) / 2.0, 40, 22)
+        # Live Digital Clock badge on right
+        current_time = time.strftime("%H:%M")
+        p.setFont(QFont("Noto Sans", 8, QFont.Weight.Bold))
+        badge_rect = QRectF(x + w - 46, y + (h - 20) / 2.0, 38, 20)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(30, 25, 45, 180)))
-        p.drawRoundedRect(badge_rect, 11, 11)
+        p.setBrush(QBrush(QColor(25, 20, 36, 200)))
+        p.drawRoundedRect(badge_rect, 10, 10)
         p.setPen(QColor(240, 240, 255))
-        p.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, self.weather_temp)
+        p.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, current_time)
 
     def _paint_notch_ash_expanded(self, p: QPainter, x, y, w, h):
-        text_x = x + 116
-        text_w = w - 150
-        p.setFont(QFont("Noto Sans", 11, QFont.Weight.Bold))
+        text_x = x + 104
+        text_w = w - 130
+        p.setFont(QFont("Noto Sans", 10, QFont.Weight.Bold))
         p.setPen(QColor(255, 255, 255))
-        p.drawText(QRectF(text_x, y + 16, text_w, 22), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.title_text[:28])
+        p.drawText(QRectF(text_x, y + 14, text_w, 20), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.title_text[:28])
 
-        p.setFont(QFont("Noto Sans", 9, QFont.Weight.Medium))
+        p.setFont(QFont("Noto Sans", 8, QFont.Weight.Medium))
         p.setPen(ACCENT_LIGHT)
-        p.drawText(QRectF(text_x, y + 40, text_w, 18), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.artist_text[:32])
+        p.drawText(QRectF(text_x, y + 36, text_w, 16), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.artist_text[:32])
 
-        self.visualizer.move(int(x + w - 34), int(y + 16))
-        self.cover_canvas.move(int(x + 14), int(y + 13))
+        self.visualizer.move(int(x + w - 30), int(y + 14))
+        self.cover_canvas.move(int(x + 12), int(y + 12))
 
     def _paint_notch_task(self, p: QPainter, x, y, w, h, mode):
-        eye_w = w * 0.35
-        self.robo.draw(p, x + eye_w / 2.0, y + h / 2.0, eye_w=12, eye_h=8)
+        eye_w = w * 0.32
+        self.robo.draw(p, x + eye_w / 2.0, y + h / 2.0, eye_w=10, eye_h=7)
         p.setFont(QFont("Noto Sans", 8, QFont.Weight.Bold))
         p.setPen(ACCENT_CYAN if mode == MODE_TASK_RUNNING else ACCENT_GREEN)
-        p.drawText(QRectF(x + eye_w + 10, y + (h - 18) / 2.0, w - eye_w - 16, 18),
-                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self._task_label[:24])
+        p.drawText(QRectF(x + eye_w + 8, y + (h - 18) / 2.0, w - eye_w - 14, 18),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self._task_label[:22])
 
     def _paint_notch_greeting(self, p: QPainter, x, y, w, h):
-        self.robo.draw(p, x + w * 0.28, y + h / 2.0, eye_w=13, eye_h=9)
-        p.setFont(QFont("Noto Sans", 10, QFont.Weight.Bold))
+        self.robo.draw(p, x + w * 0.26, y + h / 2.0, eye_w=11, eye_h=8)
+        p.setFont(QFont("Noto Sans", 9, QFont.Weight.Bold))
         p.setPen(ACCENT_LIGHT)
-        p.drawText(QRectF(x + w * 0.46, y + (h - 20) / 2.0, w * 0.50, 20),
+        p.drawText(QRectF(x + w * 0.44, y + (h - 20) / 2.0, w * 0.52, 20),
                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "Hi, I'm Robo!")
 
-    # ── Render: Notification Banner ───────────────────────────────────────────
-
     def _paint_notification(self, p: QPainter, x, y, w, h):
-        # App Badge Icon (Bell / App)
-        badge_rect = QRectF(x + 14, y + (h - 44) / 2.0, 44, 44)
+        badge_rect = QRectF(x + 12, y + (h - 40) / 2.0, 40, 40)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(146, 110, 228, 60)))
-        p.drawRoundedRect(badge_rect, 12, 12)
-        p.setFont(QFont("Noto Sans", 18))
+        p.setBrush(QBrush(QColor(146, 110, 228, 50)))
+        p.drawRoundedRect(badge_rect, 10, 10)
+        p.setFont(QFont("Noto Sans", 16))
         p.setPen(QColor(255, 255, 255))
         p.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, "🔔")
 
-        # App Name + Notification Summary
-        p.setFont(QFont("Noto Sans", 9, QFont.Weight.Bold))
+        p.setFont(QFont("Noto Sans", 8, QFont.Weight.Bold))
         p.setPen(ACCENT_CYAN)
-        p.drawText(QRectF(x + 68, y + 14, w - 80, 18), Qt.AlignmentFlag.AlignLeft, self.notif_app.upper()[:24])
+        p.drawText(QRectF(x + 60, y + 12, w - 70, 16), Qt.AlignmentFlag.AlignLeft, self.notif_app.upper()[:22])
 
-        p.setFont(QFont("Noto Sans", 10, QFont.Weight.DemiBold))
+        p.setFont(QFont("Noto Sans", 9, QFont.Weight.DemiBold))
         p.setPen(QColor(255, 255, 255))
-        p.drawText(QRectF(x + 68, y + 32, w - 80, 20), Qt.AlignmentFlag.AlignLeft, self.notif_title[:32])
+        p.drawText(QRectF(x + 60, y + 28, w - 70, 18), Qt.AlignmentFlag.AlignLeft, self.notif_title[:32])
 
         p.setFont(QFont("Noto Sans", 8))
-        p.setPen(QColor(170, 160, 190))
-        p.drawText(QRectF(x + 68, y + 52, w - 80, 18), Qt.AlignmentFlag.AlignLeft, self.notif_body[:44])
-
-    # ── Render: Bluetooth Accessory Connected Popup (Görsel 3 Tarzı) ──────────
+        p.setPen(QColor(160, 150, 180))
+        p.drawText(QRectF(x + 60, y + 46, w - 70, 16), Qt.AlignmentFlag.AlignLeft, self.notif_body[:40])
 
     def _paint_accessory_popup(self, p: QPainter, x, y, w, h):
-        # Earbuds 3D Emoji / Render Center
-        p.setFont(QFont("Noto Sans", 38))
-        p.drawText(QRectF(x, y + 16, w, 56), Qt.AlignmentFlag.AlignCenter, "🎧")
+        p.setFont(QFont("Noto Sans", 32))
+        p.drawText(QRectF(x, y + 12, w, 48), Qt.AlignmentFlag.AlignCenter, "🎧")
 
-        # Device Name
-        p.setFont(QFont("Noto Sans", 12, QFont.Weight.Bold))
+        p.setFont(QFont("Noto Sans", 11, QFont.Weight.Bold))
         p.setPen(QColor(255, 255, 255))
-        p.drawText(QRectF(x, y + 82, w, 22), Qt.AlignmentFlag.AlignCenter, self.acc_name[:24])
+        p.drawText(QRectF(x, y + 68, w, 20), Qt.AlignmentFlag.AlignCenter, self.acc_name[:22])
 
-        # Subtext: "Connected • 85%"
-        p.setFont(QFont("Noto Sans", 10))
-        p.setPen(ACCENT_LIGHT)
+        p.setFont(QFont("Noto Sans", 9))
+        p.setPen(ACCENT_GREEN)
         batt_txt = f"Bağlandı • %{self.acc_battery}" if self.acc_battery > 0 else "Bağlandı ✓"
-        p.drawText(QRectF(x, y + 108, w, 20), Qt.AlignmentFlag.AlignCenter, batt_txt)
+        p.drawText(QRectF(x, y + 90, w, 18), Qt.AlignmentFlag.AlignCenter, batt_txt)
 
-    # ── Render: Quick Control Center (Görsel 2, 4, 5 Çoklu Sayfa) ────────────
+    # ── Render: NotchNook Control Center (Görsel 1 & 2 Estetiği) ─────────────
 
-    def _paint_quick_panel(self, p: QPainter, x, y, w, h):
+    def _paint_notchnook_panel(self, p: QPainter, x, y, w, h):
         mx = self._hover_pos.x()
         my = self._hover_pos.y()
 
-        # ── Top Bar: Quick Action Buttons (Görsellerdeki üst sıra) ────────
-        icon_w = 34
-        gap = 8
-        start_x = x + 16
-
-        # 1. 📶 Wi-Fi
-        b_wifi = QRectF(start_x, y + 10, icon_w, icon_w)
+        # ── 1. Top Status Row: Headset + Live Clock/Date + Phone Battery + [✕]
+        # Headset pill (Image 1 style with ring battery)
+        hs_rect = QRectF(x + 14, y + 8, 96, 22)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(ACCENT if (self.current_page == 1 or self.wifi_enabled) else QColor(30, 25, 45, 180)))
-        p.drawRoundedRect(b_wifi, 17, 17)
-        p.setFont(QFont("Noto Sans", 12))
+        p.setBrush(QBrush(QColor(22, 18, 32, 220)))
+        p.drawRoundedRect(hs_rect, 11, 11)
+        p.setFont(QFont("Noto Sans", 9))
         p.setPen(QColor(255, 255, 255))
-        p.drawText(b_wifi, Qt.AlignmentFlag.AlignCenter, "📶")
+        p.drawText(QRectF(x + 18, y + 8, 18, 22), Qt.AlignmentFlag.AlignCenter, "🎧")
+        # Battery mini ring gauge
+        bx = x + 40
+        by = y + 14
+        p.setPen(QPen(QColor(40, 35, 55), 2))
+        p.drawArc(QRectF(bx, by, 10, 10), 0, 360 * 16)
+        pct = self.headset_battery if self.headset_battery > 0 else 85
+        p.setPen(QPen(ACCENT_GREEN, 2))
+        p.drawArc(QRectF(bx, by, 10, 10), 90 * 16, -int((pct / 100.0) * 360 * 16))
+        p.setFont(QFont("Noto Sans", 7, QFont.Weight.Bold))
+        p.setPen(QColor(200, 190, 220))
+        p.drawText(QRectF(bx + 14, y + 8, 40, 22), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"%{pct}")
 
-        # 2. ᛒ Bluetooth
-        b_bt = QRectF(start_x + (icon_w + gap), y + 10, icon_w, icon_w)
-        p.setBrush(QBrush(QColor(0, 122, 255, 220) if self.net_manager.bt_enabled else QColor(30, 25, 45, 180)))
-        p.drawRoundedRect(b_bt, 17, 17)
-        p.drawText(b_bt, Qt.AlignmentFlag.AlignCenter, "ᛒ")
+        # Center: Live Digital Clock & Date
+        clock_txt = time.strftime("%H:%M") + "  •  " + time.strftime("%d %b %a")
+        p.setFont(QFont("Noto Sans", 9, QFont.Weight.Bold))
+        p.setPen(QColor(240, 240, 255))
+        p.drawText(QRectF(x + 115, y + 8, w - 230, 22), Qt.AlignmentFlag.AlignCenter, clock_txt)
 
-        # 3. ✈ Airplane
-        b_air = QRectF(start_x + (icon_w + gap) * 2, y + 10, icon_w, icon_w)
-        p.setBrush(QBrush(QColor(255, 150, 0, 220) if self.net_manager.airplane_mode else QColor(30, 25, 45, 180)))
-        p.drawRoundedRect(b_air, 17, 17)
-        p.drawText(b_air, Qt.AlignmentFlag.AlignCenter, "✈")
+        # Phone battery via KDE Connect (Image 1 style with battery ring)
+        ph_rect = QRectF(x + w - 146, y + 8, 106, 22)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(22, 18, 32, 220)))
+        p.drawRoundedRect(ph_rect, 11, 11)
+        p.setFont(QFont("Noto Sans", 9))
+        p.setPen(QColor(255, 255, 255))
+        p.drawText(QRectF(x + w - 144, y + 8, 18, 22), Qt.AlignmentFlag.AlignCenter, "📱")
+        pbx = x + w - 122
+        pby = y + 14
+        p.setPen(QPen(QColor(40, 35, 55), 2))
+        p.drawArc(QRectF(pbx, pby, 10, 10), 0, 360 * 16)
+        ph_pct = self.phone_charge if self.phone_charge >= 0 else 75
+        p.setPen(QPen(ACCENT_GREEN if ph_pct > 20 else QColor(255, 77, 109), 2))
+        p.drawArc(QRectF(pbx, pby, 10, 10), 90 * 16, -int((ph_pct / 100.0) * 360 * 16))
+        p.setFont(QFont("Noto Sans", 7, QFont.Weight.Bold))
+        p.setPen(QColor(200, 190, 220))
+        p_str = f"%{ph_pct}" + (" ⚡" if self.phone_charging else "")
+        p.drawText(QRectF(pbx + 14, y + 8, 48, 22), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, p_str)
 
-        # 4. ⚡ Eco / GameMode
-        b_eco = QRectF(start_x + (icon_w + gap) * 3, y + 10, icon_w, icon_w)
-        p.setBrush(QBrush(ACCENT_GREEN if self.gamemode_on else QColor(30, 25, 45, 180)))
-        p.drawRoundedRect(b_eco, 17, 17)
-        p.drawText(b_eco, Qt.AlignmentFlag.AlignCenter, "⚡")
+        # Close button [✕]
+        close_btn = QRectF(x + w - 32, y + 8, 22, 22)
+        c_hover = close_btn.contains(mx, my)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(255, 77, 109, 220) if c_hover else QColor(35, 30, 48, 180)))
+        p.drawRoundedRect(close_btn, 6, 6)
+        p.setFont(QFont("Noto Sans", 8, QFont.Weight.Bold))
+        p.setPen(QColor(255, 255, 255))
+        p.drawText(close_btn, Qt.AlignmentFlag.AlignCenter, "✕")
 
-        # 5. ⚙ Settings / Close on far right
-        b_close = QRectF(x + w - 44, y + 10, icon_w, icon_w)
-        b_close_hover = b_close.contains(mx, my)
-        p.setBrush(QBrush(QColor(255, 77, 109, 200) if b_close_hover else QColor(35, 30, 50, 180)))
-        p.drawRoundedRect(b_close, 17, 17)
-        p.drawText(b_close, Qt.AlignmentFlag.AlignCenter, "✕")
+        # ── 2. Split Content: Card 1 (Media Player) & Card 2 (System Quick Hub)
+        card_y = y + 36
+        card_h = 142
 
-        # ── Carousel Content per Page ─────────────────────────────────────
-        if self.current_page == 0:
-            self._paint_page_media(p, x, y, w, h)
-        elif self.current_page == 1:
-            self._paint_page_wifi(p, x, y, w, h)
-        elif self.current_page == 2:
-            self._paint_page_widgets(p, x, y, w, h)
+        # ── TILE 1: Media Player (Width ~ 282px, Image 1 & 2 style) ────────
+        t1_w = 282
+        t1_rect = QRectF(x + 14, card_y, t1_w, card_h)
+        p.setPen(QPen(QColor(80, 70, 110, 50), 1))
+        p.setBrush(QBrush(QColor(18, 16, 26, 240)))
+        p.drawRoundedRect(t1_rect, 16, 16)
 
-        # ── Bottom Carousel Dots Indicator `• • •` (Görsel 2 ve 5 gibi) ───
-        dot_y = y + h - 16
-        dot_cx = x + w / 2.0
-        for i in range(3):
-            is_active = (i == self.current_page)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(QColor(255, 255, 255) if is_active else QColor(80, 70, 100)))
-            rw = 18 if is_active else 6
-            p.drawRoundedRect(QRectF(dot_cx - 24 + i * 16, dot_y, rw, 5), 2.5, 2.5)
-
-    # ── Page 0: Media Player (Görsel 2) ───────────────────────────────────────
-
-    def _paint_page_media(self, p: QPainter, x, y, w, h):
-        # Album cover (Image 2 style with glowing gradient)
-        art_rect = QRectF(x + 24, y + 62, 84, 84)
+        # Album Cover with Spotify badge
+        art_rect = QRectF(x + 26, card_y + 14, 56, 56)
         if self.cover_pixmap and not self.cover_pixmap.isNull():
-            p.setPen(QPen(QColor(146, 110, 228, 80), 1))
-            p.setBrush(QBrush(self.cover_pixmap.scaled(84, 84, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)))
-            p.drawRoundedRect(art_rect, 14, 14)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(self.cover_pixmap.scaled(56, 56, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)))
+            p.drawRoundedRect(art_rect, 10, 10)
         else:
             grad = QLinearGradient(art_rect.topLeft(), art_rect.bottomRight())
             grad.setColorAt(0.0, QColor(255, 0, 128))
             grad.setColorAt(1.0, QColor(0, 180, 255))
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QBrush(grad))
-            p.drawRoundedRect(art_rect, 14, 14)
+            p.drawRoundedRect(art_rect, 10, 10)
 
-        # Track Title & Artist
-        p.setFont(QFont("Noto Sans", 13, QFont.Weight.Bold))
+        # Title & Artist
+        p.setFont(QFont("Noto Sans", 10, QFont.Weight.Bold))
         p.setPen(QColor(255, 255, 255))
-        title = self.title_text if self.title_text else "Night Drive"
-        p.drawText(QRectF(x + 124, y + 66, w - 240, 24), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title[:26])
+        title = self.title_text if self.title_text else "Jane!"
+        p.drawText(QRectF(x + 90, card_y + 16, t1_w - 100, 20), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title[:22])
 
-        p.setFont(QFont("Noto Sans", 10))
+        p.setFont(QFont("Noto Sans", 8))
         p.setPen(ACCENT_LIGHT)
-        artist = self.artist_text if self.artist_text else "Neon Coast"
-        p.drawText(QRectF(x + 124, y + 92, w - 240, 18), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, artist[:30])
+        artist = self.artist_text if self.artist_text else "The Long Faces"
+        p.drawText(QRectF(x + 90, card_y + 36, t1_w - 100, 16), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, artist[:24])
 
-        # Media Controls: Prev, Large White Play/Pause Button, Next (Image 2)
-        ctrl_y = y + 74
-        p.setFont(QFont("Noto Sans", 14))
+        # Seek / Progress Bar (Image 1 style)
+        bar_x = x + 26
+        bar_y = card_y + 80
+        bar_w = t1_w - 24
+
+        # Time labels
+        p.setFont(QFont("Noto Sans", 7, QFont.Weight.Bold))
+        p.setPen(QColor(140, 130, 160))
+        cur_min = self.song_pos_s // 60
+        cur_sec = self.song_pos_s % 60
+        p.drawText(QRectF(bar_x, bar_y - 12, 40, 12), Qt.AlignmentFlag.AlignLeft, f"{cur_min}:{cur_sec:02d}")
+
+        len_min = self.song_len_s // 60
+        len_sec = self.song_len_s % 60
+        p.drawText(QRectF(bar_x + bar_w - 40, bar_y - 12, 40, 12), Qt.AlignmentFlag.AlignRight, f"{len_min}:{len_sec:02d}")
+
+        # Bar track
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(40, 35, 55)))
+        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, 4), 2, 2)
+
+        # Bar fill (white/accent)
+        fill_w = bar_w * self.song_ratio
+        p.setBrush(QBrush(QColor(255, 255, 255)))
+        p.drawRoundedRect(QRectF(bar_x, bar_y, fill_w, 4), 2, 2)
+
+        # Playback Controls: Prev, Large White Inverted Circle Button, Next (Image 1 & 2)
+        btn_y = card_y + 98
+        p.setFont(QFont("Noto Sans", 13))
         p.setPen(QColor(255, 255, 255))
-        p.drawText(QRectF(x + w - 146, ctrl_y, 34, 34), Qt.AlignmentFlag.AlignCenter, "⏮")
+        p.drawText(QRectF(x + 138, btn_y + 4, 30, 30), Qt.AlignmentFlag.AlignCenter, "⏮")
 
-        # Big White Round Play/Pause Button (Inverted circle with black symbol)
+        # Inverted white round Play/Pause button
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(QColor(255, 255, 255)))
-        p.drawEllipse(QRectF(x + w - 104, ctrl_y - 4, 42, 42))
-        p.setFont(QFont("Noto Sans", 16, QFont.Weight.Bold))
+        p.drawEllipse(QRectF(x + 180, btn_y, 36, 36))
+        p.setFont(QFont("Noto Sans", 13, QFont.Weight.Bold))
         p.setPen(QColor(10, 10, 16))
-        p.drawText(QRectF(x + w - 104, ctrl_y - 4, 42, 42), Qt.AlignmentFlag.AlignCenter, "⏸" if self.is_playing else "▶")
+        p.drawText(QRectF(x + 180, btn_y, 36, 36), Qt.AlignmentFlag.AlignCenter, "⏸" if self.is_playing else "▶")
 
+        p.setFont(QFont("Noto Sans", 13))
         p.setPen(QColor(255, 255, 255))
-        p.drawText(QRectF(x + w - 54, ctrl_y, 34, 34), Qt.AlignmentFlag.AlignCenter, "⏭")
+        p.drawText(QRectF(x + 228, btn_y + 4, 30, 30), Qt.AlignmentFlag.AlignCenter, "⏭")
 
-        # Green Progress / Volume Bar (Image 2 style)
-        bar_x = x + 124
-        bar_y = y + 130
-        bar_w = w - 150
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(40, 35, 55)))
-        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, 5), 2.5, 2.5)
+        # ── TILE 2: Quick System Hub (Width ~ 135px, Compact Tile) ────────
+        t2_x = x + 14 + t1_w + 10
+        t2_w = w - t1_w - 38
+        t2_rect = QRectF(t2_x, card_y, t2_w, card_h)
+        p.setPen(QPen(QColor(80, 70, 110, 50), 1))
+        p.setBrush(QBrush(QColor(18, 16, 26, 240)))
+        p.drawRoundedRect(t2_rect, 16, 16)
 
-        fill_w = bar_w * (self.system_volume / 100.0)
-        p.setBrush(QBrush(ACCENT_GREEN))
-        p.drawRoundedRect(QRectF(bar_x, bar_y, fill_w, 5), 2.5, 2.5)
-
-        # Volume / Status percentage
-        p.setFont(QFont("Noto Sans", 8, QFont.Weight.Bold))
-        p.setPen(QColor(180, 170, 200))
-        p.drawText(QRectF(bar_x, bar_y + 10, 100, 16), Qt.AlignmentFlag.AlignLeft, f"Ses: %{self.system_volume}")
-
-    # ── Page 1: Wi-Fi Manager (Görsel 4) ──────────────────────────────────────
-
-    def _paint_page_wifi(self, p: QPainter, x, y, w, h):
-        # Title "Wi-Fi"
-        p.setFont(QFont("Noto Sans", 12, QFont.Weight.Bold))
-        p.setPen(QColor(255, 255, 255))
-        p.drawText(QRectF(x + 24, y + 54, 100, 24), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "Wi-Fi")
-
-        # Toggle Switch (Blue active switch like Image 4)
-        sw_rect = QRectF(x + w - 66, y + 54, 46, 24)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(0, 122, 255) if self.wifi_enabled else QColor(50, 45, 65)))
-        p.drawRoundedRect(sw_rect, 12, 12)
-        thumb_x = (x + w - 42) if self.wifi_enabled else (x + w - 64)
-        p.setBrush(QBrush(QColor(255, 255, 255)))
-        p.drawEllipse(QRectF(thumb_x, y + 56, 20, 20))
-
-        # Networks List (Cards like Image 4)
-        card_y = y + 88
-        card_h = 36
-        card_w = w - 48
-
-        if not self.networks and self.connected_ssid:
-            self.networks = [{"ssid": self.connected_ssid, "active": True}]
-
-        for idx, net in enumerate(self.networks[:3]):
-            ny = card_y + idx * (card_h + 8)
-            r = QRectF(x + 24, ny, card_w, card_h)
-
-            if net.get("active"):
-                # Active Green Bordered Card
-                p.setPen(QPen(ACCENT_GREEN, 1.4))
-                p.setBrush(QBrush(QColor(10, 40, 25, 200)))
-                p.drawRoundedRect(r, 10, 10)
-                p.setFont(QFont("Noto Sans", 10, QFont.Weight.Bold))
-                p.setPen(QColor(255, 255, 255))
-                p.drawText(QRectF(x + 54, ny, card_w - 140, card_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, net.get("ssid", ""))
-                p.setFont(QFont("Noto Sans", 9))
-                p.setPen(ACCENT_GREEN)
-                p.drawText(QRectF(x + card_w - 70, ny, 80, card_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, "Bağlı ✓")
-            else:
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(QBrush(QColor(25, 22, 38, 200)))
-                p.drawRoundedRect(r, 10, 10)
-                p.setFont(QFont("Noto Sans", 10))
-                p.setPen(QColor(220, 220, 235))
-                p.drawText(QRectF(x + 54, ny, card_w - 140, card_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, net.get("ssid", ""))
-                p.setFont(QFont("Noto Sans", 9))
-                p.setPen(QColor(140, 130, 160))
-                p.drawText(QRectF(x + card_w - 70, ny, 80, card_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, "Kayıtlı")
-
-            p.setFont(QFont("Noto Sans", 12))
-            p.setPen(ACCENT_GREEN if net.get("active") else QColor(140, 130, 160))
-            p.drawText(QRectF(x + 32, ny, 20, card_h), Qt.AlignmentFlag.AlignCenter, "📶")
-
-    # ── Page 2: Widgets & Battery (Görsel 5 + KDE Connect & Bluetooth) ────────
-
-    def _paint_page_widgets(self, p: QPainter, x, y, w, h):
-        tile_y = y + 56
-        tile_w = (w - 56) / 2.0
-        tile_h = 76
-
-        # 1. Left Tile: Weather (Görsel 5 gibi: 3D Icon + 19°C + London · Cloudy)
-        t1_rect = QRectF(x + 24, tile_y, tile_w, tile_h)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(25, 22, 38, 220)))
-        p.drawRoundedRect(t1_rect, 14, 14)
-
-        p.setFont(QFont("Noto Sans", 24))
-        p.drawText(QRectF(x + 32, tile_y + 12, 44, 44), Qt.AlignmentFlag.AlignCenter, "⛅")
-
-        p.setFont(QFont("Noto Sans", 14, QFont.Weight.Bold))
-        p.setPen(QColor(255, 255, 255))
-        p.drawText(QRectF(x + 82, tile_y + 16, tile_w - 68, 22), Qt.AlignmentFlag.AlignLeft, self.weather_temp)
-
-        p.setFont(QFont("Noto Sans", 8))
-        p.setPen(QColor(150, 140, 170))
-        p.drawText(QRectF(x + 82, tile_y + 40, tile_w - 68, 18), Qt.AlignmentFlag.AlignLeft, f"CachyOS · {self.weather_cond}")
-
-        # 2. Right Tile: Hardware Telemetry (Görsel 5 gibi: CPU 17%, RAM 43%)
-        t2_rect = QRectF(x + 32 + tile_w, tile_y, tile_w, tile_h)
-        p.drawRoundedRect(t2_rect, 14, 14)
-
-        # CPU row
-        p.setFont(QFont("Noto Sans", 9, QFont.Weight.Bold))
+        # CPU bar
+        p.setFont(QFont("Noto Sans", 7, QFont.Weight.Bold))
         p.setPen(QColor(160, 150, 180))
-        p.drawText(QRectF(x + 44 + tile_w, tile_y + 16, 32, 16), Qt.AlignmentFlag.AlignLeft, "CPU")
-        p.setBrush(QBrush(QColor(40, 35, 55)))
-        p.drawRoundedRect(QRectF(x + 82 + tile_w, tile_y + 22, tile_w - 96, 6), 3, 3)
+        p.drawText(QRectF(t2_x + 12, card_y + 14, 28, 12), Qt.AlignmentFlag.AlignLeft, "CPU")
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(35, 30, 48)))
+        p.drawRoundedRect(QRectF(t2_x + 42, card_y + 18, t2_w - 76, 4), 2, 2)
         p.setBrush(QBrush(ACCENT_CYAN))
-        p.drawRoundedRect(QRectF(x + 82 + tile_w, tile_y + 22, (tile_w - 96) * (self.cpu_usage / 100.0), 6), 3, 3)
-        p.drawText(QRectF(x + tile_w * 2 + 18, tile_y + 16, 36, 16), Qt.AlignmentFlag.AlignRight, f"{self.cpu_usage}%")
+        p.drawRoundedRect(QRectF(t2_x + 42, card_y + 18, (t2_w - 76) * (self.cpu_usage / 100.0), 4), 2, 2)
+        p.setPen(QColor(200, 190, 220))
+        p.drawText(QRectF(t2_x + t2_w - 32, card_y + 14, 24, 12), Qt.AlignmentFlag.AlignRight, f"{self.cpu_usage}%")
 
-        # RAM row
+        # RAM bar
         p.setPen(QColor(160, 150, 180))
-        p.drawText(QRectF(x + 44 + tile_w, tile_y + 44, 32, 16), Qt.AlignmentFlag.AlignLeft, "RAM")
-        p.setBrush(QBrush(QColor(40, 35, 55)))
-        p.drawRoundedRect(QRectF(x + 82 + tile_w, tile_y + 50, tile_w - 96, 6), 3, 3)
+        p.drawText(QRectF(t2_x + 12, card_y + 32, 28, 12), Qt.AlignmentFlag.AlignLeft, "RAM")
+        p.setBrush(QBrush(QColor(35, 30, 48)))
+        p.drawRoundedRect(QRectF(t2_x + 42, card_y + 36, t2_w - 76, 4), 2, 2)
+        p.setBrush(QBrush(ACCENT))
+        p.drawRoundedRect(QRectF(t2_x + 42, card_y + 36, (t2_w - 76) * (self.ram_usage / 100.0), 4), 2, 2)
+        p.setPen(QColor(200, 190, 220))
+        p.drawText(QRectF(t2_x + t2_w - 32, card_y + 32, 24, 12), Qt.AlignmentFlag.AlignRight, f"{self.ram_usage}%")
+
+        # Volume Slider
+        p.setFont(QFont("Noto Sans", 8))
+        p.setPen(QColor(255, 255, 255))
+        p.drawText(QRectF(t2_x + 12, card_y + 54, 16, 16), Qt.AlignmentFlag.AlignCenter, "🔉")
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(35, 30, 48)))
+        p.drawRoundedRect(QRectF(t2_x + 32, card_y + 60, t2_w - 68, 5), 2.5, 2.5)
+        v_fill = (t2_w - 68) * (self.system_volume / 100.0)
         p.setBrush(QBrush(ACCENT_GREEN))
-        p.drawRoundedRect(QRectF(x + 82 + tile_w, tile_y + 50, (tile_w - 96) * (self.ram_usage / 100.0), 6), 3, 3)
-        p.drawText(QRectF(x + tile_w * 2 + 18, tile_y + 44, 36, 16), Qt.AlignmentFlag.AlignRight, f"{self.ram_usage}%")
+        p.drawRoundedRect(QRectF(t2_x + 32, card_y + 60, v_fill, 5), 2.5, 2.5)
+        p.setFont(QFont("Noto Sans", 7, QFont.Weight.Bold))
+        p.setPen(QColor(200, 190, 220))
+        p.drawText(QRectF(t2_x + t2_w - 32, card_y + 54, 24, 16), Qt.AlignmentFlag.AlignRight, f"{self.system_volume}%")
 
-        # 3. Bottom Row: KDE Connect Phone Battery & Bluetooth Headset Battery!
-        b_card_y = tile_y + tile_h + 10
-        b_card_rect = QRectF(x + 24, b_card_y, w - 48, 54)
-        p.setBrush(QBrush(QColor(22, 19, 34, 220)))
-        p.drawRoundedRect(b_card_rect, 12, 12)
+        # Divider
+        p.setPen(QPen(QColor(60, 50, 80, 60), 1))
+        p.drawLine(int(t2_x + 12), int(card_y + 80), int(t2_x + t2_w - 12), int(card_y + 80))
 
-        # Phone Section (Left)
-        p.setFont(QFont("Noto Sans", 16))
+        # Quick Toggles: Wi-Fi (📶) and Night Light (🌙)
+        w_btn = QRectF(t2_x + 12, card_y + 92, (t2_w - 30) / 2.0, 38)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(0, 122, 255, 220) if self.wifi_enabled else QColor(30, 25, 42)))
+        p.drawRoundedRect(w_btn, 8, 8)
+        p.setFont(QFont("Noto Sans", 11))
         p.setPen(QColor(255, 255, 255))
-        p.drawText(QRectF(x + 36, b_card_y + 10, 32, 34), Qt.AlignmentFlag.AlignCenter, "📱")
+        p.drawText(w_btn, Qt.AlignmentFlag.AlignCenter, "📶")
 
-        p.setFont(QFont("Noto Sans", 9, QFont.Weight.Bold))
-        p.drawText(QRectF(x + 72, b_card_y + 10, 130, 18), Qt.AlignmentFlag.AlignLeft, self.phone_name[:18])
-
-        p.setFont(QFont("Noto Sans", 8))
-        phone_pct_str = f"%{self.phone_charge}" if self.phone_charge >= 0 else "Bağlı Değil"
-        if self.phone_charging:
-            phone_pct_str += " ⚡ Şarj Oluyor"
-        p.setPen(ACCENT_GREEN if self.phone_charge > 20 else QColor(255, 77, 109))
-        p.drawText(QRectF(x + 72, b_card_y + 28, 130, 16), Qt.AlignmentFlag.AlignLeft, phone_pct_str)
-
-        # Headset Section (Right)
-        mid_x = x + w / 2.0
-        p.setPen(QPen(QColor(60, 50, 80, 80), 1))
-        p.drawLine(int(mid_x), int(b_card_y + 8), int(mid_x), int(b_card_y + 46))
-
-        p.setFont(QFont("Noto Sans", 16))
-        p.setPen(QColor(255, 255, 255))
-        p.drawText(QRectF(mid_x + 14, b_card_y + 10, 32, 34), Qt.AlignmentFlag.AlignCenter, "🎧")
-
-        p.setFont(QFont("Noto Sans", 9, QFont.Weight.Bold))
-        headset_lbl = self.headset_name if self.headset_name else "Galaxy Buds2"
-        p.drawText(QRectF(mid_x + 50, b_card_y + 10, 130, 18), Qt.AlignmentFlag.AlignLeft, headset_lbl[:18])
-
-        p.setFont(QFont("Noto Sans", 8))
-        headset_pct_str = f"%{self.headset_battery}" if self.headset_battery >= 0 else ("Bağlı" if self.headset_name else "Bağlı Değil")
-        p.setPen(ACCENT_GREEN if self.headset_battery > 20 else (ACCENT_LIGHT if self.headset_battery >= 0 else QColor(140, 130, 160)))
-        p.drawText(QRectF(mid_x + 50, b_card_y + 28, 130, 16), Qt.AlignmentFlag.AlignLeft, headset_pct_str)
+        nl_btn = QRectF(t2_x + 12 + (t2_w - 30) / 2.0 + 6, card_y + 92, (t2_w - 30) / 2.0, 38)
+        p.setBrush(QBrush(ACCENT if self.night_light_on else QColor(30, 25, 42)))
+        p.drawRoundedRect(nl_btn, 8, 8)
+        p.drawText(nl_btn, Qt.AlignmentFlag.AlignCenter, "🌙")
