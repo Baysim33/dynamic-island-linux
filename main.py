@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """
-Robo Island — Apple iPhone 14/15 Dynamic Island & Quick Control Panel.
-Main Daemon Entrypoint with LayerShell click-through & Hotkey support.
+Robo Island — Apple iPhone 14/15 Dynamic Island & Multi-Tab Control Center.
+Features:
+  - Media Controls with Ash wind particle disintegration
+  - Wi-Fi Manager (nmcli) & Bluetooth Manager
+  - Live Notifications over DBus (replaces default OS popups)
+  - KDE Connect Phone (Galaxy S25 FE) & Bluetooth Headset Battery
+  - LayerShell input region click-through
 """
 import sys
 import os
 import signal
 
-# Ensure unbuffered stdout
+# Ensure unbuffered stdout for journalctl
 sys.stdout.reconfigure(line_buffering=True)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -60,6 +65,15 @@ def main():
             send_ipc_command("quit")
             sys.exit(0)
 
+        if arg == "--test-notif":
+            msg = sys.argv[2] if len(sys.argv) > 2 else "Bu bir test bildirimidir!"
+            send_ipc_command(f"test_notif:{msg}")
+            sys.exit(0)
+
+        if arg == "--test-buds":
+            send_ipc_command("test_buds")
+            sys.exit(0)
+
         if arg.startswith("--task-"):
             cmd_map = {
                 "--task-start":  "task_start:",
@@ -94,7 +108,7 @@ def main():
     # Screen management
     detector.target_screen_changed.connect(island.set_target_screen)
 
-    # Hotkey trigger (Ctrl+Alt+Space) toggles the Quick Control Panel
+    # Hotkey trigger (Ctrl+Alt+Space / Grave / P) toggles the Control Panel
     hotkey.toggle_panel.connect(island.toggle_quick_panel)
     hotkey.start()
 
@@ -122,6 +136,11 @@ def main():
                     app.quit()
                 elif cmd in ("toggle_panel", "toggle"):
                     island.toggle_quick_panel()
+                elif cmd == "test_buds":
+                    island._on_accessory_connected("Galaxy Buds2 (A51C)", 85)
+                elif cmd.startswith("test_notif:"):
+                    msg = cmd[len("test_notif:"):]
+                    island._on_notification("Discord", "Yeni Mesaj", msg, "")
                 elif cmd == "ping":
                     pass
                 elif cmd.startswith("task_"):
@@ -133,7 +152,7 @@ def main():
     server.newConnection.connect(handle_ipc)
 
     signal.signal(signal.SIGINT, lambda *_: app.quit())
-    print("🤖 Robo Island (iPhone Dynamic Island + Hızlı Panel) başlatıldı.", flush=True)
+    print("🤖 Robo Island (iPhone Dynamic Island, Bildirim Merkezi & Kontrol Paneli) başlatıldı.", flush=True)
     sys.exit(app.exec())
 
 
