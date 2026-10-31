@@ -136,6 +136,10 @@ def main():
                     app.quit()
                 elif cmd in ("toggle_panel", "toggle"):
                     island.toggle_quick_panel()
+                elif cmd in ("bloom_open", "bloom"):
+                    island.trigger_notch_bloom_open()
+                elif cmd == "bloom_close":
+                    island.trigger_notch_bloom_close()
                 elif cmd == "test_buds":
                     island._on_accessory_connected("Galaxy Buds2 (A51C)", 85)
                 elif cmd.startswith("test_notif:"):
