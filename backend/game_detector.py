@@ -1,15 +1,14 @@
 """
 Game and Monitor Detector for Spotify-Island.
 Directs the Dynamic Island to the non-gaming monitor when a game is active,
-or defaults to the primary 240Hz monitor (HDMI-A-2).
+or defaults to the primary 240Hz monitor (HDMI-A-1).
 """
 import os
 import subprocess
 from PySide6.QtCore import QObject, Signal, QTimer
-from PySide6.QtGui import QGuiApplication
 
-PRIMARY_SCREEN_NAME = "HDMI-A-2"    # 240Hz Main gaming monitor
-SECONDARY_SCREEN_NAME = "HDMI-A-1"  # 75Hz Side monitor
+PRIMARY_SCREEN_NAME = "HDMI-A-1"    # 240Hz Main monitor (priority 1)
+SECONDARY_SCREEN_NAME = "HDMI-A-2"  # 75Hz Side monitor (priority 2)
 
 # Keywords in executable paths or process command lines
 GAME_BIN_PATTERNS = [
@@ -33,7 +32,7 @@ class GameMonitorDetector(QObject):
         self.is_game_active = False
 
         self.timer = QTimer(self)
-        self.timer.setInterval(1000)  # Check every 1 second
+        self.timer.setInterval(1500)  # Check every 1.5 seconds
         self.timer.timeout.connect(self.check_state)
         self.timer.start()
 
@@ -59,9 +58,7 @@ class GameMonitorDetector(QObject):
                 try:
                     with open(f"/proc/{pid}/cmdline", "rb") as f:
                         cmd = f.read().replace(b"\x00", b" ").decode("utf-8", errors="ignore")
-                        # Match game binary pattern
                         if any(pattern in cmd for pattern in GAME_BIN_PATTERNS):
-                            # Avoid matching our own scripts or text editors
                             if "spotify-island" not in cmd and "python" not in cmd.split()[0]:
                                 return True
                 except Exception:
@@ -75,16 +72,14 @@ class GameMonitorDetector(QObject):
         active_output = self.get_active_kwin_output()
 
         if game_running:
-            # If game is running on the active monitor, move Island to the OTHER monitor!
+            # If game is running on the 240Hz monitor, move Island to side monitor
             if active_output == PRIMARY_SCREEN_NAME:
                 return SECONDARY_SCREEN_NAME
             elif active_output == SECONDARY_SCREEN_NAME:
                 return PRIMARY_SCREEN_NAME
             else:
-                # Default side monitor when game is running
                 return SECONDARY_SCREEN_NAME
         else:
-            # No game running: use primary 240Hz screen
             return PRIMARY_SCREEN_NAME
 
     def check_state(self):
