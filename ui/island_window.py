@@ -48,6 +48,9 @@ MODE_NOTIFICATION    = 8   # Notch: System Notification banner popup (4.5s)
 MODE_ACCESSORY_POPUP = 9   # Notch: Bluetooth Headset connected card (4s)
 MODE_QUICK_PANEL     = 10  # NotchNook Expanded Control Center!
 MODE_NOTCH_BLOOM     = 11  # Meta+Space trigger: notch liquid bloom towards radial menu!
+MODE_AIRDROP_HOVER   = 12  # File drag over notch (AirDrop dropzone)
+MODE_AIRDROP_SENDING = 13  # Sending file to Galaxy S25 FE
+MODE_AIRDROP_SUCCESS = 14  # Sent to Phone successfully ✓
 
 MODE_DIMS = {
     MODE_IDLE:            (165,  34),
@@ -61,6 +64,9 @@ MODE_DIMS = {
     MODE_ACCESSORY_POPUP: (280, 130),
     MODE_QUICK_PANEL:     (475, 204),  # Sleek refined dual-card layout
     MODE_NOTCH_BLOOM:     (360,  68),  # Meta+Space liquid bloom out of notch
+    MODE_AIRDROP_HOVER:   (360,  64),  # AirDrop drop zone
+    MODE_AIRDROP_SENDING: (330,  56),
+    MODE_AIRDROP_SUCCESS: (320,  52),
 }
 
 ACCENT       = QColor(146, 110, 228)        # #926ee4
@@ -69,6 +75,119 @@ ACCENT_CYAN  = QColor(0,   200, 255)
 ACCENT_GREEN = QColor(29,  185,  84)
 BG_NOTCH     = QColor(10,  10,  15,  252)   # Deep Apple Matte Black
 BG_PANEL     = QColor(12,  11,  18,  252)
+
+
+# ── Apple SF Symbols Style Vector Drawers ────────────────────────────────────
+
+def draw_apple_wifi(p: QPainter, rect: QRectF, color: QColor):
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(QPen(color, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    cx = rect.center().x()
+    cy = rect.center().y() + 2.5
+    # Arc 1 (Top)
+    p.drawArc(QRectF(cx - 9.0, cy - 8.5, 18.0, 15.0), 45 * 16, 90 * 16)
+    # Arc 2 (Middle)
+    p.drawArc(QRectF(cx - 5.5, cy - 5.0, 11.0, 9.0), 45 * 16, 90 * 16)
+    # Center dot
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QBrush(color))
+    p.drawEllipse(QRectF(cx - 1.5, cy + 0.5, 3.0, 3.0))
+    p.restore()
+
+def draw_apple_bluetooth(p: QPainter, rect: QRectF, color: QColor):
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(QPen(color, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.MiterJoin))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    cx = rect.center().x()
+    cy = rect.center().y()
+    h = 8.5
+    w = 5.0
+    path = QPainterPath()
+    path.moveTo(cx - w, cy - h * 0.55)
+    path.lineTo(cx + w, cy + h * 0.55)
+    path.lineTo(cx, cy + h)
+    path.lineTo(cx, cy - h)
+    path.lineTo(cx + w, cy - h * 0.55)
+    path.lineTo(cx - w, cy + h * 0.55)
+    p.drawPath(path)
+    p.restore()
+
+def draw_apple_moon(p: QPainter, rect: QRectF, color: QColor):
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QBrush(color))
+    cx = rect.center().x()
+    cy = rect.center().y()
+    r = 7.5
+    crescent = QPainterPath()
+    crescent.addEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
+    sub = QPainterPath()
+    sub.addEllipse(QRectF(cx - r * 0.35, cy - r * 1.05, r * 1.7, r * 1.7))
+    path = crescent.subtracted(sub)
+    p.drawPath(path)
+    p.restore()
+
+def draw_apple_bolt(p: QPainter, rect: QRectF, color: QColor):
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QBrush(color))
+    cx = rect.center().x()
+    cy = rect.center().y()
+    path = QPainterPath()
+    path.moveTo(cx + 0.5, cy - 8.5)
+    path.lineTo(cx - 5.5, cy + 0.5)
+    path.lineTo(cx - 0.5, cy + 0.5)
+    path.lineTo(cx - 1.5, cy + 8.5)
+    path.lineTo(cx + 5.5, cy - 0.5)
+    path.lineTo(cx + 0.5, cy - 0.5)
+    path.closeSubpath()
+    p.drawPath(path)
+    p.restore()
+
+def draw_apple_speaker(p: QPainter, rect: QRectF, color: QColor, is_muted: bool):
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    cx = rect.center().x()
+    cy = rect.center().y()
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QBrush(color))
+    path = QPainterPath()
+    path.moveTo(cx - 6.5, cy - 3.0)
+    path.lineTo(cx - 3.5, cy - 3.0)
+    path.lineTo(cx + 0.5, cy - 6.5)
+    path.lineTo(cx + 0.5, cy + 6.5)
+    path.lineTo(cx - 3.5, cy + 3.0)
+    path.lineTo(cx - 6.5, cy + 3.0)
+    path.closeSubpath()
+    p.drawPath(path)
+    if is_muted:
+        p.setPen(QPen(QColor(255, 77, 109), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(int(cx + 2.5), int(cy - 4.5), int(cx + 7.5), int(cy + 4.5))
+    else:
+        p.setPen(QPen(color, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawArc(QRectF(cx - 1.5, cy - 4.0, 8.0, 8.0), -60 * 16, 120 * 16)
+        p.drawArc(QRectF(cx - 0.5, cy - 6.5, 13.0, 13.0), -60 * 16, 120 * 16)
+    p.restore()
+
+def draw_apple_camera(p: QPainter, rect: QRectF, color: QColor):
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(QPen(color, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    cx = rect.center().x()
+    cy = rect.center().y()
+    p.drawRoundedRect(QRectF(cx - 7.5, cy - 4.5, 15.0, 11.5), 2.5, 2.5)
+    p.drawEllipse(QRectF(cx - 3.2, cy - 1.2, 6.4, 6.4))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QBrush(color))
+    p.drawRoundedRect(QRectF(cx - 3.0, cy - 6.8, 6.0, 2.5), 1.0, 1.0)
+    p.restore()
 
 
 class DynamicIsland(QWidget):
@@ -82,6 +201,8 @@ class DynamicIsland(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setMouseTracking(True)
+        self.setAcceptDrops(True)
+        self._airdrop_filename = ""
 
         # Canvas bounds
         self.canvas_width  = 540
@@ -766,6 +887,61 @@ class DynamicIsland(QWidget):
                 return
         super().keyPressEvent(event)
 
+    # ── AirDrop Drag & Drop into Dynamic Island ──────────────────────────────
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            urls = event.mimeData().urls()
+            if urls:
+                self._airdrop_filename = os.path.basename(urls[0].toLocalFile()) if urls[0].isLocalFile() else "Dosya"
+                if len(urls) > 1:
+                    self._airdrop_filename += f" (+{len(urls)-1})"
+            self.set_mode(MODE_AIRDROP_HOVER)
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        if self.current_mode == MODE_AIRDROP_HOVER:
+            self._on_collapse_timeout()
+        event.accept()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        paths = [u.toLocalFile() for u in urls if u.isLocalFile()]
+        if paths:
+            event.acceptProposedAction()
+            self._send_files_via_airdrop(paths)
+        else:
+            event.ignore()
+
+    def _send_files_via_airdrop(self, paths: list):
+        self.set_mode(MODE_AIRDROP_SENDING)
+        self.update()
+
+        import threading
+        def worker():
+            for p in paths:
+                subprocess.run(
+                    ["kdeconnect-cli", "-d", "4bc4747eab4e42a7874f9c704ba4927f", "--share", p],
+                    capture_output=True, timeout=15
+                )
+            QTimer.singleShot(400, self._on_airdrop_success)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_airdrop_success(self):
+        self.robo.set_state("happy")
+        self.set_mode(MODE_AIRDROP_SUCCESS)
+        self.update()
+        QTimer.singleShot(3500, self._on_collapse_timeout)
+
     def _set_volume(self, pct: int):
         pct = max(0, min(100, pct))
         self.system_volume = pct
@@ -824,6 +1000,48 @@ class DynamicIsland(QWidget):
             p.setBrush(QBrush(BG_NOTCH))
             p.drawRoundedRect(pill_rect, 20, 20)
             self._paint_accessory_popup(p, x, y, w, h)
+
+        elif mode == MODE_AIRDROP_HOVER:
+            # File drag over notch (AirDrop Drop Zone)
+            p.setPen(QPen(ACCENT_CYAN, 1.8))
+            p.setBrush(QBrush(BG_NOTCH))
+            p.drawRoundedRect(pill_rect, 20, 20)
+
+            # Left Phone Icon
+            p.setFont(QFont("Noto Sans", 14))
+            p.setPen(QColor(255, 255, 255))
+            p.drawText(QRectF(x + 12, y, 32, h), Qt.AlignmentFlag.AlignCenter, "📱")
+
+            # Center text
+            p.setFont(QFont("Noto Sans", 9, QFont.Weight.Bold))
+            p.setPen(ACCENT_CYAN)
+            p.drawText(QRectF(x + 46, y + 10, w - 58, 20), Qt.AlignmentFlag.AlignLeft, "Telefona Bırak (AirDrop)")
+            p.setFont(QFont("Noto Sans", 8))
+            p.setPen(QColor(200, 200, 220))
+            fn = self._airdrop_filename if self._airdrop_filename else "Dosya"
+            p.drawText(QRectF(x + 46, y + 30, w - 58, 18), Qt.AlignmentFlag.AlignLeft, fn[:28])
+
+        elif mode == MODE_AIRDROP_SENDING:
+            # Sending file to Galaxy S25 FE
+            p.setPen(QPen(ACCENT, 1.5))
+            p.setBrush(QBrush(BG_NOTCH))
+            p.drawRoundedRect(pill_rect, 20, 20)
+
+            self.robo.draw(p, x + 30, y + h / 2.0, eye_w=10, eye_h=8)
+            p.setFont(QFont("Noto Sans", 9, QFont.Weight.Bold))
+            p.setPen(QColor(240, 230, 255))
+            p.drawText(QRectF(x + 52, y, w - 60, h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "Galaxy S25 FE'ye Uçuyor... 🚀")
+
+        elif mode == MODE_AIRDROP_SUCCESS:
+            # Successfully sent!
+            p.setPen(QPen(ACCENT_GREEN, 1.8))
+            p.setBrush(QBrush(BG_NOTCH))
+            p.drawRoundedRect(pill_rect, 20, 20)
+
+            self.robo.draw(p, x + 30, y + h / 2.0, eye_w=10, eye_h=8)
+            p.setFont(QFont("Noto Sans", 9, QFont.Weight.Bold))
+            p.setPen(ACCENT_GREEN)
+            p.drawText(QRectF(x + 52, y, w - 60, h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "Telefona Gönderildi ✓")
 
         elif mode == MODE_NOTCH_BLOOM:
             # Meta+Space trigger: notch stretches down like Apple liquid glass!
@@ -1178,47 +1396,47 @@ class DynamicIsland(QWidget):
         p.setPen(QColor(200, 190, 220))
         p.drawText(QRectF(t2_x + t2_w - 30, card_y + 50, 26, 16), Qt.AlignmentFlag.AlignRight, f"{self.system_volume}%")
 
-        # ── Quick Action Grid (6 Buttons: Wi-Fi, Bluetooth, Night Light, Performance, Mute, Screenshot) ─
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setFont(QFont("Noto Sans", 10))
+        # ── Apple iOS / macOS Control Center Style Quick Shortcut Grid ─────────────
+        btn_round = 8.5
+        apple_glass = QColor(255, 255, 255, 26)       # Translucent Apple frosted glass
+        apple_border = QColor(255, 255, 255, 35)
+        apple_blue = QColor(0, 122, 255, 235)         # iOS Vivid Blue
+        apple_amber = QColor(255, 149, 0, 235)        # iOS Night Shift Amber
+        apple_green = QColor(52, 199, 89, 235)        # iOS Performance Green
+        apple_red = QColor(255, 59, 48, 235)          # iOS Red
 
         # 1. Wi-Fi
-        p.setBrush(QBrush(QColor(0, 122, 255, 220) if self.wifi_enabled else QColor(32, 26, 44)))
-        p.drawRoundedRect(R["btn_wifi"], 7, 7)
-        p.setPen(QColor(255, 255, 255))
-        p.drawText(R["btn_wifi"], Qt.AlignmentFlag.AlignCenter, "📶")
+        p.setPen(QPen(apple_border, 1.0))
+        p.setBrush(QBrush(apple_blue if self.wifi_enabled else apple_glass))
+        p.drawRoundedRect(R["btn_wifi"], btn_round, btn_round)
+        draw_apple_wifi(p, R["btn_wifi"], QColor(255, 255, 255) if self.wifi_enabled else QColor(190, 190, 210))
 
         # 2. Bluetooth
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(0, 122, 255, 220) if self.net_manager.bt_enabled else QColor(32, 26, 44)))
-        p.drawRoundedRect(R["btn_bt"], 7, 7)
-        p.setPen(QColor(255, 255, 255))
-        p.drawText(R["btn_bt"], Qt.AlignmentFlag.AlignCenter, "ᛒ")
+        p.setPen(QPen(apple_border, 1.0))
+        p.setBrush(QBrush(apple_blue if self.net_manager.bt_enabled else apple_glass))
+        p.drawRoundedRect(R["btn_bt"], btn_round, btn_round)
+        draw_apple_bluetooth(p, R["btn_bt"], QColor(255, 255, 255) if self.net_manager.bt_enabled else QColor(190, 190, 210))
 
-        # 3. Night Light
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(ACCENT if self.night_light_on else QColor(32, 26, 44)))
-        p.drawRoundedRect(R["btn_nl"], 7, 7)
-        p.setPen(QColor(255, 255, 255))
-        p.drawText(R["btn_nl"], Qt.AlignmentFlag.AlignCenter, "🌙")
+        # 3. Night Light (Apple Night Shift Moon)
+        p.setPen(QPen(apple_border, 1.0))
+        p.setBrush(QBrush(apple_amber if self.night_light_on else apple_glass))
+        p.drawRoundedRect(R["btn_nl"], btn_round, btn_round)
+        draw_apple_moon(p, R["btn_nl"], QColor(255, 255, 255) if self.night_light_on else QColor(190, 190, 210))
 
-        # 4. Performance / GameMode
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(ACCENT_GREEN if self.gamemode_on else QColor(32, 26, 44)))
-        p.drawRoundedRect(R["btn_game"], 7, 7)
-        p.setPen(QColor(255, 255, 255))
-        p.drawText(R["btn_game"], Qt.AlignmentFlag.AlignCenter, "⚡")
+        # 4. Performance / GameMode (Apple Bolt)
+        p.setPen(QPen(apple_border, 1.0))
+        p.setBrush(QBrush(apple_green if self.gamemode_on else apple_glass))
+        p.drawRoundedRect(R["btn_game"], btn_round, btn_round)
+        draw_apple_bolt(p, R["btn_game"], QColor(255, 255, 255) if self.gamemode_on else QColor(190, 190, 210))
 
-        # 5. Mute Toggle
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(255, 77, 109, 220) if self.is_muted else QColor(32, 26, 44)))
-        p.drawRoundedRect(R["btn_mute"], 7, 7)
-        p.setPen(QColor(255, 255, 255))
-        p.drawText(R["btn_mute"], Qt.AlignmentFlag.AlignCenter, "🔇" if self.is_muted else "🔊")
+        # 5. Mute Audio (Apple Speaker Wave / Mute)
+        p.setPen(QPen(apple_border, 1.0))
+        p.setBrush(QBrush(apple_red if self.is_muted else apple_glass))
+        p.drawRoundedRect(R["btn_mute"], btn_round, btn_round)
+        draw_apple_speaker(p, R["btn_mute"], QColor(255, 255, 255) if self.is_muted else QColor(190, 190, 210), self.is_muted)
 
-        # 6. Screenshot (Spectacle)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(32, 26, 44)))
-        p.drawRoundedRect(R["btn_shot"], 7, 7)
-        p.setPen(QColor(255, 255, 255))
-        p.drawText(R["btn_shot"], Qt.AlignmentFlag.AlignCenter, "📸")
+        # 6. Screenshot (Apple Camera / Viewfinder)
+        p.setPen(QPen(apple_border, 1.0))
+        p.setBrush(QBrush(apple_glass))
+        p.drawRoundedRect(R["btn_shot"], btn_round, btn_round)
+        draw_apple_camera(p, R["btn_shot"], QColor(220, 220, 240))
