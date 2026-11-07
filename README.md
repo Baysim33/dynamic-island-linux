@@ -91,8 +91,9 @@ systemctl --user enable --now spotify-island.service
 
 ## ⌨️ Shortcuts
 * `Click on Notch`: Toggle NotchNook Quick Control Center
+* `Meta + Space` (Super + Boşluk): Toggle Quick Control Center & Liquid Notch Bloom
 * `Ctrl + Alt + A`: Open Fast Command Palette
-* `Ctrl + Alt + P`: Toggle Control Panel
+* `Ctrl + Alt + P` / `Ctrl + Alt + Space`: Toggle Control Panel
 * `Ctrl + Alt + S`: Open Settings & Customization
 * `Esc`: Close open overlays
 

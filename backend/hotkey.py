@@ -1,10 +1,10 @@
 """
 Hotkey Listener for Spotify / Robo Island.
-Listens for Ctrl+Alt+Space (and Ctrl+Alt+` or Ctrl+Alt+P) on Wayland without KDE shortcuts.
-Ctrl+Alt+A -> toggle_ai (Robo AI Asistanı)
-Meta+Space is left untouched (handled by KDE Plasma).
-
-Runs in a daemon thread; emits toggle_panel / toggle_ai Signal to Qt main thread.
+Listens for:
+  - Meta+Space (Super+Boşluk) -> toggle_panel (NotchNook Hızlı Panel)
+  - Ctrl+Alt+Space / P / `    -> toggle_panel
+  - Ctrl+Alt+A                -> toggle_ai (Akıllı Hızlı Asistan)
+  - Ctrl+Alt+S                -> toggle_settings (Kişiselleştirme Penceresi)
 """
 import threading
 import time
@@ -107,10 +107,18 @@ class HotkeyListener(QObject):
                                        ecodes.KEY_RIGHTCTRL in pressed)
                             alt_ok  = (ecodes.KEY_LEFTALT in pressed or
                                        ecodes.KEY_RIGHTALT in pressed)
+                            meta_ok = (ecodes.KEY_LEFTMETA in pressed or
+                                       ecodes.KEY_RIGHTMETA in pressed)
 
-                            if ctrl_ok and alt_ok:
-                                now = time.time()
-                                if now - self._last_trigger > (DEBOUNCE_MS / 1000.0):
+                            now = time.time()
+                            if now - self._last_trigger > (DEBOUNCE_MS / 1000.0):
+                                # 1. Meta + Space (Super + Boşluk)
+                                if meta_ok and kev.scancode == ecodes.KEY_SPACE:
+                                    self._last_trigger = now
+                                    self.toggle_panel.emit()
+
+                                # 2. Ctrl + Alt + [A/S/Space/P/`]
+                                elif ctrl_ok and alt_ok:
                                     self._last_trigger = now
                                     if kev.scancode == ecodes.KEY_A:
                                         self.toggle_ai.emit()
