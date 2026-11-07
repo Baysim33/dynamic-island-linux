@@ -1,2 +1,8 @@
 __pycache__/
 *.py[cod]
+*.bak
+*.so
+.env
+*key*.txt
+.idea/
+.vscode/

@@ -62,6 +62,13 @@ def main():
                 print("[RoboIsland] Ada çalışmıyor.")
             sys.exit(0)
 
+        if arg in ("--settings", "-s"):
+            if send_ipc_command("settings"):
+                print("[RoboIsland] Kişiselleştirme paneli açıldı.")
+            else:
+                print("[RoboIsland] Ada çalışmıyor.")
+            sys.exit(0)
+
         if arg in ("--quit", "-q"):
             send_ipc_command("quit")
             sys.exit(0)
@@ -139,7 +146,9 @@ def main():
             for isl in islands:
                 isl.toggle_quick_panel()
 
-    # Hotkey trigger (Ctrl+Alt+Space / Grave / P) toggles the Control Panel
+    # Hotkey triggers
+    hotkey.toggle_ai.connect(lambda: get_focused_island().show_ai_input() if get_focused_island() else None)
+    hotkey.toggle_settings.connect(lambda: get_focused_island().open_settings_window() if get_focused_island() else None)
     hotkey.toggle_panel.connect(toggle_all_or_focused_panel)
     hotkey.start()
 
@@ -169,6 +178,10 @@ def main():
                     app.quit()
                 elif cmd in ("toggle_panel", "toggle"):
                     toggle_all_or_focused_panel()
+                elif cmd in ("settings", "open_settings"):
+                    f = get_focused_island()
+                    if f:
+                        f.open_settings_window()
                 elif cmd in ("bloom_open", "bloom"):
                     for isl in islands:
                         isl.trigger_notch_bloom_open()

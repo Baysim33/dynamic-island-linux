@@ -1,8 +1,10 @@
 """
 Hotkey Listener for Spotify / Robo Island.
 Listens for Ctrl+Alt+Space (and Ctrl+Alt+` or Ctrl+Alt+P) on Wayland without KDE shortcuts.
+Ctrl+Alt+A -> toggle_ai (Robo AI Asistanı)
+Meta+Space is left untouched (handled by KDE Plasma).
 
-Runs in a daemon thread; emits toggle_panel Signal to Qt main thread.
+Runs in a daemon thread; emits toggle_panel / toggle_ai Signal to Qt main thread.
 """
 import threading
 import time
@@ -18,9 +20,11 @@ except ImportError:
 TRIGGER_KEYS = set()
 if EVDEV_AVAILABLE:
     TRIGGER_KEYS = {
-        ecodes.KEY_SPACE,  # Space
-        ecodes.KEY_GRAVE,  # ` key
-        ecodes.KEY_P,      # P key
+        ecodes.KEY_SPACE,  # Ctrl+Alt+Space -> Hızlı Panel
+        ecodes.KEY_GRAVE,  # Ctrl+Alt+` -> Hızlı Panel
+        ecodes.KEY_P,      # Ctrl+Alt+P  -> Hızlı Panel
+        ecodes.KEY_A,      # Ctrl+Alt+A  -> Robo AI Asistanı!
+        ecodes.KEY_S,      # Ctrl+Alt+S  -> Kişiselleştirme & Ayarlar!
     }
 
 REQUIRE_CTRL = True
@@ -44,7 +48,9 @@ def _find_keyboards():
 
 
 class HotkeyListener(QObject):
-    toggle_panel = Signal()
+    toggle_panel    = Signal()
+    toggle_ai       = Signal()
+    toggle_settings = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -59,7 +65,7 @@ class HotkeyListener(QObject):
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
-        print("[HotkeyListener] Started — listening for Ctrl+Alt+[Space/`/P]")
+        print("[HotkeyListener] Started — listening for Ctrl+Alt+[Space/`/P/A]")
 
     def stop(self):
         self._running = False
@@ -97,17 +103,21 @@ class HotkeyListener(QObject):
                         # Check combo on key down
                         if (kev.keystate == kev.key_down
                                 and kev.scancode in TRIGGER_KEYS):
-                            ctrl_ok = (not REQUIRE_CTRL or
-                                       ecodes.KEY_LEFTCTRL in pressed or
+                            ctrl_ok = (ecodes.KEY_LEFTCTRL in pressed or
                                        ecodes.KEY_RIGHTCTRL in pressed)
-                            alt_ok  = (not REQUIRE_ALT or
-                                       ecodes.KEY_LEFTALT in pressed or
+                            alt_ok  = (ecodes.KEY_LEFTALT in pressed or
                                        ecodes.KEY_RIGHTALT in pressed)
+
                             if ctrl_ok and alt_ok:
                                 now = time.time()
                                 if now - self._last_trigger > (DEBOUNCE_MS / 1000.0):
                                     self._last_trigger = now
-                                    self.toggle_panel.emit()
+                                    if kev.scancode == ecodes.KEY_A:
+                                        self.toggle_ai.emit()
+                                    elif kev.scancode == ecodes.KEY_S:
+                                        self.toggle_settings.emit()
+                                    else:
+                                        self.toggle_panel.emit()
                 except OSError:
                     keyboards = _find_keyboards()
                     break

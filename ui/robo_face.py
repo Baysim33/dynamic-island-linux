@@ -19,6 +19,15 @@ from PySide6.QtCore import QRectF, Qt
 
 
 # ── Color palette per state ────────────────────────────────────────────────
+CUSTOM_EYE_COLORS = {
+    "violet": (QColor(146, 110, 228, 210), QColor(190, 160, 255, 240)),
+    "cyan":   (QColor(0,   200, 255, 220), QColor(120, 240, 255, 255)),
+    "green":  (QColor(29,  185,  84, 220), QColor(80,  230, 130, 255)),
+    "amber":  (QColor(230, 170,   0, 220), QColor(255, 210,  60, 255)),
+    "red":    (QColor(220,  50,  60, 220), QColor(255,  80,  80, 255)),
+    "white":  (QColor(230, 230, 245, 220), QColor(255, 255, 255, 255)),
+}
+
 STATE_COLORS = {
     "idle":     (QColor(146, 110, 228, 190), QColor(190, 160, 255, 230)),  # violet
     "active":   (QColor(0,   200, 255, 220), QColor(120, 240, 255, 255)),  # cyan
@@ -53,6 +62,42 @@ class RoboFace:
         self._gaze_y = 0.0
         self._target_gaze_x = 0.0
         self._target_gaze_y = 0.0
+        self._is_hovered = False
+        self._action_mode = ""
+        self._action_until = 0.0
+
+    def set_hover(self, is_hover: bool, rel_x: float = 0.0):
+        """React to mouse cursor hovering or moving over the island."""
+        self._is_hovered = is_hover
+        if is_hover:
+            self._target_gaze_x = max(-2.5, min(2.5, rel_x * 2.5))
+            self._target_gaze_y = -0.6
+            self._current_behavior = "curious"
+        else:
+            self._target_gaze_x = 0.0
+            self._target_gaze_y = 0.0
+
+    def trigger_action(self, action: str):
+        """User interaction triggers: 'panel_open', 'panel_close', 'typing', 'song_change'."""
+        now = time.perf_counter()
+        self._action_mode = action
+        if action == "panel_open":
+            self._action_until = now + 1.2
+            self._current_behavior = "smile"
+            self._target_gaze_x = 0.0
+            self._target_gaze_y = -1.2
+        elif action == "panel_close":
+            self._action_until = now + 0.8
+            self._current_behavior = "wink"
+        elif action == "typing":
+            self._action_until = now + 0.5
+            self._current_behavior = "center"
+            # Oscillate gaze back and forth reading what the user types
+            self._target_gaze_x = math.sin(now * 10.0) * 1.8
+            self._target_gaze_y = 0.5
+        elif action == "song_change":
+            self._action_until = now + 1.5
+            self._current_behavior = "heart"
 
     def set_state(self, state: str):
         if state != self.state:
@@ -61,6 +106,20 @@ class RoboFace:
 
     def _update_idle_behavior(self, t: float):
         """Randomly cycles between cute lifelike robotic expressions while idle."""
+        # Action override
+        if self._action_until > t:
+            if self._action_mode == "typing":
+                self._target_gaze_x = math.sin(t * 12.0) * 1.6
+                self._target_gaze_y = 0.4
+            self._gaze_x += (self._target_gaze_x - self._gaze_x) * 0.25
+            self._gaze_y += (self._target_gaze_y - self._gaze_y) * 0.25
+            return
+
+        if self._is_hovered:
+            self._gaze_x += (self._target_gaze_x - self._gaze_x) * 0.2
+            self._gaze_y += (self._target_gaze_y - self._gaze_y) * 0.2
+            return
+
         if self.state != "idle":
             self._current_behavior = "center"
             self._target_gaze_x = 0.0
@@ -91,13 +150,19 @@ class RoboFace:
         self._gaze_x += (self._target_gaze_x - self._gaze_x) * 0.15
         self._gaze_y += (self._target_gaze_y - self._gaze_y) * 0.15
 
-    def draw(self, painter: QPainter, cx: float, cy: float, eye_w: float = 14.0, eye_h: float = 10.0):
+    def draw(self, painter: QPainter, cx: float, cy: float, eye_w: float = 14.0, eye_h: float = 10.0, eye_color_mode: str = "auto"):
+        if eye_color_mode in ("off", "hidden", "none"):
+            return
+
         t = time.perf_counter()
         elapsed = t - self._state_entered
 
         self._update_idle_behavior(t)
 
-        base_color, glow_color = STATE_COLORS.get(self.state, STATE_COLORS["idle"])
+        if eye_color_mode and eye_color_mode in CUSTOM_EYE_COLORS:
+            base_color, glow_color = CUSTOM_EYE_COLORS[eye_color_mode]
+        else:
+            base_color, glow_color = STATE_COLORS.get(self.state, STATE_COLORS["idle"])
 
         # Eye gap & positions
         gap = eye_w * 0.9
