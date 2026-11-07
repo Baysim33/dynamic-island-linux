@@ -618,6 +618,8 @@ class DynamicIsland(QWidget):
         self.ai_input.move((self.canvas_width - 360) // 2, 7)
         self.ai_input.show()
         self.ai_input.raise_()
+        self.raise_()
+        self.activateWindow()
         self.ai_input.setFocus()
         self.ai_input.selectAll()
         self.toast_label.hide()
@@ -646,6 +648,7 @@ class DynamicIsland(QWidget):
     def _on_ai_submit(self):
         """Enter basıldığında yerel komutu anında (0ms) çalıştır."""
         prompt = self.ai_input.text().strip()
+        print(f"[CommandPalette] User submitted: '{prompt}'")
         self.ai_input.hide()
         self.ai_input.clear()
         self.cmd_preview.hide()
@@ -654,6 +657,7 @@ class DynamicIsland(QWidget):
             return
 
         reply, success = self.cmd_engine.execute(prompt)
+        print(f"[CommandPalette] Result (success={success}): '{reply}'")
         self._on_cmd_finished(reply, success)
 
     def _on_cmd_finished(self, reply: str, success: bool):
