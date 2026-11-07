@@ -1,5 +1,5 @@
 # Dynamic Island Linux 🏝️🤖
-> **Apple iPhone 14/15 Dynamic Island + macOS NotchNook Control Center** for Linux (KDE Plasma 6, Wayland).  
+> **Apple iPhone 14/15 Dynamic Island + macOS NotchNook Control Center + AirDrop** for Linux (KDE Plasma 6, Wayland).  
 > Built with **Python 3, PySide6, and Wayland LayerShell**.
 
 ---
@@ -19,6 +19,11 @@
     * 😉 **Wink:** Greets you when closing the panel.
     * ⚡ **Reading/Typing Gaze:** Scans left and right as you type in the command bar.
   * Fully customizable or can be hidden completely in the Settings window.
+
+* **📲 Drag & Drop "AirDrop" File Sharing:**
+  * Drag any file or photo from your file manager or browser directly onto the Island.
+  * The notch expands into an **AirDrop drop-zone**, previewing the file name.
+  * Drop it, and it instantly flies to your connected phone via KDE Connect (`kdeconnect-cli --share`) with delightful progress and success animations!
 
 * **🎛️ NotchNook Expanded Control Center (Dual-Card Hub):**
   * **Tile 1 (Media Player):** Live Spotify album artwork, track seek bar, play/pause, prev, next controls with dynamic particle animations.
